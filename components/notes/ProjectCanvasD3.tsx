@@ -32,6 +32,8 @@ export function ProjectCanvasD3({
       .curve(d3.curveBasis);
 
     const draw = () => {
+      const css = getComputedStyle(root);
+      const foreground = css.getPropertyValue("--foreground").trim() || "#111111";
       const frame = root.getBoundingClientRect();
       svg.setAttribute("width", String(frame.width));
       svg.setAttribute("height", String(frame.height));
@@ -81,7 +83,7 @@ export function ProjectCanvasD3({
         .join("path")
         .attr("d", (d) => d.d)
         .attr("fill", "none")
-        .attr("stroke", "rgba(17,17,17,0.22)")
+        .attr("stroke", `color-mix(in srgb, ${foreground} 24%, transparent)`)
         .attr("stroke-width", 1.2)
         .attr("stroke-linecap", "round")
         .attr("stroke-dasharray", "4 6");

@@ -13,7 +13,7 @@ export default function NotesLoading() {
         {[0, 1, 2].map((item) => (
           <div
             key={item}
-            className="border border-[var(--border)] bg-white p-7"
+            className="border border-[var(--border)] bg-[var(--surface)] p-7"
           >
             <div className="h-6 w-2/5 animate-pulse bg-[var(--muted)]" />
             <div className="mt-4 h-4 w-3/5 animate-pulse bg-[var(--muted)]" />

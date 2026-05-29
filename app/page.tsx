@@ -82,8 +82,8 @@ export default function HomePage() {
 
 function ResearchWindow() {
   return (
-    <div className="border border-[var(--border)] bg-[rgba(17,17,17,0.03)] p-2 shadow-[0_24px_80px_-72px_rgba(17,17,17,0.4)]">
-      <div className="border border-[var(--border)] bg-white">
+      <div className="border border-[var(--border)] bg-[color-mix(in_srgb,var(--foreground)_4%,transparent)] p-2 shadow-[0_24px_80px_-72px_rgba(17,17,17,0.4)]">
+      <div className="border border-[var(--border)] bg-[var(--surface)]">
         <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
           <span className="h-2.5 w-2.5 rounded-full bg-[#dedbd3]" />
           <span className="h-2.5 w-2.5 rounded-full bg-[#dedbd3]" />
@@ -97,20 +97,20 @@ function ResearchWindow() {
             <p className="font-mono-ui text-[11px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
               Selected passage
             </p>
-            <p className="border-l border-[var(--border)] pl-4 text-sm leading-7 text-[#3f3d39]">
+            <p className="border-l border-[var(--border)] pl-4 text-sm leading-7 text-[color-mix(in_srgb,var(--foreground)_82%,transparent)]">
               The useful note is not just the quote. It is the quote, the
               source, and the question that appeared while reading.
             </p>
           </div>
           <div className="grid gap-3 md:grid-cols-[1fr_0.72fr]">
-            <div className="border border-[var(--border)] bg-[#fbfbfa] p-4">
+            <div className="border border-[var(--border)] bg-[var(--surface-soft)] p-4">
               <p className="font-medium tracking-[-0.01em]">Reader thought</p>
               <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">
                 Compare this with the memory retrieval section in the April
                 paper.
               </p>
             </div>
-            <div className="border border-[var(--border)] bg-white p-4">
+            <div className="border border-[var(--border)] bg-[var(--surface)] p-4">
               <p className="font-mono-ui text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
                 Placeholder structure
               </p>
@@ -160,7 +160,7 @@ function FeatureBlock({
 
   return (
     <article
-      className={`reveal border border-[var(--border)] bg-white p-8 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:translate-y-[-2px] hover:shadow-[0_2px_8px_rgba(17,17,17,0.04)] md:p-10 ${className ?? ""}`}
+      className={`reveal border border-[var(--border)] bg-[var(--surface)] p-8 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:translate-y-[-2px] hover:shadow-[0_2px_8px_rgba(17,17,17,0.04)] md:p-10 ${className ?? ""}`}
       style={revealIndex(index)}
     >
       <div

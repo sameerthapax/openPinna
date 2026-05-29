@@ -51,14 +51,14 @@ export function SessionCanvas({
   const mapHeight = Math.max(460, nodes.length * STEP_Y + 64);
 
   return (
-    <div className="mt-8 border border-[var(--border)] bg-[#fdfcf9] p-6">
+    <div className="mt-8 border border-[var(--border)] bg-[var(--surface-soft)] p-6">
       <div className="relative overflow-y-auto" style={{ height: Math.min(mapHeight, 620) }}>
         <div className="relative" style={{ height: mapHeight }}>
         <svg className="absolute inset-0 h-full w-full" aria-hidden="true">
           <path
             d={`M ${LINE_X} ${START_Y} L ${LINE_X} ${Math.max(START_Y + 120, mapHeight - 28)}`}
             fill="none"
-            stroke="rgba(17,17,17,0.16)"
+            stroke="color-mix(in srgb, var(--foreground) 16%, transparent)"
             strokeWidth="1"
             strokeDasharray="3 6"
           />
@@ -73,7 +73,7 @@ export function SessionCanvas({
                   { x: node.dotX, y: node.dotY },
                 )}
                 fill="none"
-                stroke="rgba(17,17,17,0.22)"
+                stroke="color-mix(in srgb, var(--foreground) 22%, transparent)"
                 strokeWidth="1.2"
                 strokeLinecap="round"
                 strokeDasharray="4 6"
@@ -89,7 +89,7 @@ export function SessionCanvas({
                 { x: node.anchorX, y: node.anchorY },
               )}
               fill="none"
-              stroke="rgba(17,17,17,0.24)"
+              stroke="color-mix(in srgb, var(--foreground) 24%, transparent)"
               strokeWidth="1.2"
               strokeLinecap="round"
             />
@@ -99,7 +99,7 @@ export function SessionCanvas({
         {nodes.map((node) => (
           <div
             key={`dot-${node.id}`}
-            className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[var(--foreground)]/45 bg-white"
+            className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[var(--foreground)]/45 bg-[var(--surface)]"
             style={{ left: node.dotX, top: node.dotY }}
           />
         ))}
@@ -108,7 +108,7 @@ export function SessionCanvas({
           <Link
             key={node.id}
             href={`/notes/${projectId}/sessions/${sessionId}/notes/${node.id}`}
-            className="reveal absolute block border border-[var(--border)] bg-white p-4 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:scale-[1.02]"
+            className="reveal absolute block border border-[var(--border)] bg-[var(--surface)] p-4 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:scale-[1.02]"
             style={{ left: node.x, top: node.y, width: CARD_W, minHeight: CARD_H, "--index": index } as CSSProperties}
           >
             <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">

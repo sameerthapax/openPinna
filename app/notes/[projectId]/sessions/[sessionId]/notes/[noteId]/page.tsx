@@ -16,7 +16,7 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
 
   return (
     <div className="space-y-6 pb-16">
-      <section className="border border-[var(--border)] bg-white p-6 md:p-8">
+      <section className="border border-[var(--border)] bg-[var(--surface)] p-6 md:p-8">
         <div className="space-y-3 border-b border-[var(--border)] pb-7">
           <p className="font-mono-ui text-[11px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Note research board</p>
           <h1 className="font-editorial text-5xl tracking-[-0.04em]">{note.session.project.title}</h1>
@@ -24,8 +24,8 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
           <p className="max-w-[72ch] text-sm leading-7 text-[var(--muted-foreground)]">{note.body}</p>
         </div>
 
-        <div className="relative mt-6 min-h-[680px] border border-[var(--border)] bg-[#fdfcf9] p-8">
-          <div className="absolute left-1/2 top-1/2 w-[340px] -translate-x-1/2 -translate-y-1/2 border border-[var(--border)] bg-white p-5">
+        <div className="relative mt-6 min-h-[680px] border border-[var(--border)] bg-[var(--surface-soft)] p-8">
+          <div className="absolute left-1/2 top-1/2 w-[340px] -translate-x-1/2 -translate-y-1/2 border border-[var(--border)] bg-[var(--surface)] p-5">
             <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Central idea</p>
             <p className="mt-2 text-sm leading-7">{note.body}</p>
           </div>
@@ -39,12 +39,12 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
             return (
               <div key={thread.id}>
                 <div className={`absolute ${lineClass} h-px bg-[var(--foreground)]/20`} style={{ top }} />
-                <section className={`absolute ${sideClass} w-[320px] border border-[var(--border)] bg-white p-4`} style={{ top }}>
+                <section className={`absolute ${sideClass} w-[320px] border border-[var(--border)] bg-[var(--surface)] p-4`} style={{ top }}>
                   <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]">{thread.topicType}</p>
                   <h2 className="mt-2 text-base font-semibold">{thread.title}</h2>
                   <div className="mt-3 space-y-2">
                     {thread.messages.map((message) => (
-                      <div key={message.id} className="border border-[var(--border)] bg-[#fbfbfa] px-3 py-2 text-sm leading-6">
+                      <div key={message.id} className="border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm leading-6">
                         <span className="font-mono-ui mr-2 text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{message.role}</span>
                         {message.content}
                       </div>

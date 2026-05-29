@@ -1,14 +1,22 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: light;
   --background: #f7f6f3;
   --foreground: #111111;
   --muted: #f1f0ec;
   --muted-foreground: #787774;
-  --border: #eaeaea;
+  --border: #dfddd7;
   --card: #ffffff;
+  --surface: #ffffff;
+  --surface-soft: #fbfbfa;
   --primary: #111111;
   --primary-foreground: #ffffff;
+  --primary-border: #111111;
+  --primary-hover: #2a2926;
+  --focus-ring: #8f8a7b;
+  --nav-bg: rgba(247, 246, 243, 0.78);
+  --overlay-bg: rgba(247, 246, 243, 0.5);
   --pastel-blue: #e1f3fe;
   --pastel-blue-text: #1f6c9f;
   --pastel-green: #edf3ec;
@@ -17,6 +25,33 @@
   --pastel-yellow-text: #956400;
   --pastel-red: #fdebec;
   --pastel-red-text: #9f2f2d;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #11100e;
+  --foreground: #f2efe9;
+  --muted: #1a1815;
+  --muted-foreground: #b8b1a3;
+  --border: #2b2823;
+  --card: #171512;
+  --surface: #171512;
+  --surface-soft: #1d1a16;
+  --primary: #30271d;
+  --primary-foreground: #efe6d8;
+  --primary-border: #4a3d2d;
+  --primary-hover: #3a3024;
+  --focus-ring: #a19988;
+  --nav-bg: rgba(23, 21, 18, 0.8);
+  --overlay-bg: rgba(8, 7, 6, 0.5);
+  --pastel-blue: #1f2f3a;
+  --pastel-blue-text: #a9d6f3;
+  --pastel-green: #243127;
+  --pastel-green-text: #b9d8b8;
+  --pastel-yellow: #352d1f;
+  --pastel-yellow-text: #f0d79f;
+  --pastel-red: #3a2422;
+  --pastel-red-text: #f3b7b2;
 }
 
 * {
@@ -47,8 +82,10 @@ a {
 }
 
 .btn-primary {
-  background: #111111;
-  color: #ffffff !important;
+  background: var(--primary);
+  border: 1px solid var(--primary-border);
+  color: var(--primary-foreground) !important;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--primary-foreground) 16%, transparent);
 }
 
 .btn-primary:visited,
@@ -60,7 +97,7 @@ a {
 }
 
 .btn-primary:hover {
-  background: #333333;
+  background: var(--primary-hover);
 }
 
 .font-editorial {
@@ -74,10 +111,15 @@ a {
 
 .paper-depth {
   background-image:
-    linear-gradient(rgba(17, 17, 17, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(17, 17, 17, 0.03) 1px, transparent 1px);
+    linear-gradient(color-mix(in srgb, var(--foreground) 8%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--foreground) 7%, transparent) 1px, transparent 1px);
   background-size: 48px 48px;
   background-position: center top;
+}
+
+.focus-ring {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 36%, transparent);
 }
 
 .reveal {

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Cross2Icon, PlusIcon } from "@radix-ui/react-icons";
 import { createPortal } from "react-dom";
+import { ThemeModeToggle } from "@/components/navigation/ThemeModeToggle";
 
 type CreateScope = "project" | "session" | "note";
 
@@ -108,6 +109,7 @@ export function GlobalNavControls() {
   return (
     <>
       <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
+        <ThemeModeToggle />
         {backHref ? <Link href={backHref} className="rounded-[6px] px-3 py-2 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]">Back</Link> : null}
         <button type="button" onClick={() => setOpen(true)} className="btn-primary inline-flex items-center gap-2 rounded-[6px] px-3 py-2 font-medium transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.98]">
           <PlusIcon className="h-4 w-4" />
@@ -118,23 +120,23 @@ export function GlobalNavControls() {
       {mounted && open
         ? createPortal(
             <div
-              className="fixed inset-0 z-30 bg-[rgba(247,246,243,0.36)] backdrop-blur-[3px]"
+              className="fixed inset-0 z-30 bg-[var(--overlay-bg)] backdrop-blur-[3px]"
               onMouseDown={() => setOpen(false)}
             >
               <div className="mx-auto flex h-full max-w-7xl justify-center px-4 pt-[104px] pb-8">
                 <div
-                  className="max-h-[calc(100dvh-140px)] w-full max-w-xl overflow-y-auto border border-[var(--border)] bg-white p-6"
+                  className="max-h-[calc(100dvh-140px)] w-full max-w-xl overflow-y-auto border border-[var(--border)] bg-[var(--surface)] p-6"
                   onMouseDown={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between">
                     <p className="font-mono-ui text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{scope === "project" ? "Create project" : scope === "session" ? "Create session" : "Create note"}</p>
-                    <button type="button" onClick={() => setOpen(false)} className="rounded-[6px] p-2 hover:bg-[var(--muted)]"><Cross2Icon className="h-4 w-4" /></button>
+                    <button type="button" onClick={() => setOpen(false)} className="rounded-[6px] p-2 transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-[var(--muted)] focus-visible:focus-ring"><Cross2Icon className="h-4 w-4" /></button>
                   </div>
                   <form onSubmit={submit} className="mt-4 space-y-3">
-                    <input name="title" required placeholder={scope === "note" ? "Note title" : scope === "session" ? "Session title" : "Project title"} className="w-full border border-[var(--border)] bg-[#fbfbfa] px-3 py-2 text-sm outline-none" />
-                    {scope === "project" ? <textarea name="description" placeholder="Brief scope" className="min-h-24 w-full border border-[var(--border)] bg-[#fbfbfa] px-3 py-2 text-sm outline-none" /> : null}
-                    {scope === "session" ? <><input name="sessionDate" type="date" required className="w-full border border-[var(--border)] bg-[#fbfbfa] px-3 py-2 text-sm outline-none" /><textarea name="summary" placeholder="Session summary" className="min-h-20 w-full border border-[var(--border)] bg-[#fbfbfa] px-3 py-2 text-sm outline-none" /></> : null}
-                    {scope === "note" ? <><textarea name="body" required placeholder="Captured knowledge" className="min-h-24 w-full border border-[var(--border)] bg-[#fbfbfa] px-3 py-2 text-sm outline-none" /><input name="sourceUrl" placeholder="Source URL" className="w-full border border-[var(--border)] bg-[#fbfbfa] px-3 py-2 text-sm outline-none" /><input name="sourceTitle" placeholder="Source title" className="w-full border border-[var(--border)] bg-[#fbfbfa] px-3 py-2 text-sm outline-none" /><textarea name="selectedText" placeholder="Selected text" className="min-h-20 w-full border border-[var(--border)] bg-[#fbfbfa] px-3 py-2 text-sm outline-none" /><input name="tags" placeholder="tag1, tag2" className="w-full border border-[var(--border)] bg-[#fbfbfa] px-3 py-2 text-sm outline-none" /></> : null}
+                    <input name="title" required placeholder={scope === "note" ? "Note title" : scope === "session" ? "Session title" : "Project title"} className="w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" />
+                    {scope === "project" ? <textarea name="description" placeholder="Brief scope" className="min-h-24 w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /> : null}
+                    {scope === "session" ? <><input name="sessionDate" type="date" required className="w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /><textarea name="summary" placeholder="Session summary" className="min-h-20 w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /></> : null}
+                    {scope === "note" ? <><textarea name="body" required placeholder="Captured knowledge" className="min-h-24 w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /><input name="sourceUrl" placeholder="Source URL" className="w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /><input name="sourceTitle" placeholder="Source title" className="w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /><textarea name="selectedText" placeholder="Selected text" className="min-h-20 w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /><input name="tags" placeholder="tag1, tag2" className="w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /></> : null}
                     <button disabled={submitting} type="submit" className="btn-primary mt-2 rounded-[6px] px-3 py-2 text-sm font-medium disabled:opacity-70">{submitting ? "Saving..." : "Save"}</button>
                   </form>
                 </div>

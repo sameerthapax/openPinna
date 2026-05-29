@@ -32,6 +32,8 @@ export function MainHierarchyD3({
       .curve(d3.curveBasis);
 
     const draw = () => {
+      const css = getComputedStyle(root);
+      const foreground = css.getPropertyValue("--foreground").trim() || "#111111";
       const frame = root.getBoundingClientRect();
       svg.setAttribute("width", String(frame.width));
       svg.setAttribute("height", String(frame.height));
@@ -102,7 +104,13 @@ export function MainHierarchyD3({
         .attr("d", (d) => d.d)
         .attr("fill", "none")
         .attr("stroke-linecap", "round")
-        .attr("stroke", (d) => (d.kind === "project-session" ? "rgba(17,17,17,0.30)" : "rgba(17,17,17,0.22)"))
+        .attr(
+          "stroke",
+          (d) =>
+            d.kind === "project-session"
+              ? `color-mix(in srgb, ${foreground} 32%, transparent)`
+              : `color-mix(in srgb, ${foreground} 24%, transparent)`,
+        )
         .attr("stroke-width", (d) => (d.kind === "project-session" ? 1.4 : 1.2))
         .attr("stroke-dasharray", (d) => (d.kind === "project-session" ? null : "4 5"));
 
