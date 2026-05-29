@@ -1,12 +1,12 @@
 import {
-  createNoteController,
-  listNotesController,
+  createProjectController,
+  listProjectsController,
 } from "@/app/api/research/research.controller";
 
 export async function GET() {
-  return listNotesController();
+  return listProjectsController();
 }
 
 export async function POST(request: Request) {
-  return createNoteController(request);
+  return createProjectController(request);
 }

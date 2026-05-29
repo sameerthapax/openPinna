@@ -54,3 +54,8 @@ After every task, summarize:
 - what changed
 - how to test
 - possible risks
+
+## Flowchart Relationship Rule
+
+- In hierarchy UIs (project, session, notes), always render relationships using visible flowchart-style connectors (curvy lines or tree branches) between related entities.
+- Do not render parent/child hierarchy as disconnected cards when a relationship map is being shown.

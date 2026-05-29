@@ -7,19 +7,111 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model ResearchNote {
-  id                String   @id @default(cuid())
-  title             String
-  sourceUrl         String
-  sourceTitle       String?
-  selectedText      String?  @db.Text
-  rawThought        String   @db.Text
-  structuredSummary String?  @db.Text
-  usefulness        String?
-  purpose           String?
-  tags              String[]
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+enum ResearchScopeType {
+  PROJECT
+  SESSION
+  NOTE
+}
+
+enum ResearchTopicType {
+  GENERAL
+  QUESTION
+  STATEMENT
+  FIT
+  WEAKNESS
+  STRENGTH
+  CONTRADICTION
+  METHODOLOGY
+  FINDING
+  CONCLUSION
+  EXPERIMENT
+  SENTIMENT
+}
+
+enum ResearchMessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+model Project {
+  id          String           @id @default(cuid())
+  title       String
+  description String?          @db.Text
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  sessions    ResearchSession[]
+  threads     ResearchThread[]
 
   @@index([createdAt])
+}
+
+model ResearchSession {
+  id          String           @id @default(cuid())
+  projectId   String
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sessionDate DateTime
+  title       String
+  summary     String?          @db.Text
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  notes       SessionNote[]
+  threads     ResearchThread[]
+
+  @@index([projectId])
+  @@index([sessionDate])
+  @@unique([projectId, sessionDate])
+}
+
+model SessionNote {
+  id           String           @id @default(cuid())
+  sessionId    String
+  session      ResearchSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  title        String
+  sourceUrl    String?
+  sourceTitle  String?
+  selectedText String?          @db.Text
+  body         String           @db.Text
+  tags         String[]
+  boardX       Float            @default(0)
+  boardY       Float            @default(0)
+  capturedAt   DateTime         @default(now())
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  threads      ResearchThread[]
+
+  @@index([sessionId])
+  @@index([capturedAt])
+}
+
+model ResearchThread {
+  id         String             @id @default(cuid())
+  scopeType  ResearchScopeType
+  topicType  ResearchTopicType
+  title      String
+  projectId  String?
+  project    Project?           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sessionId  String?
+  session    ResearchSession?   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  noteId     String?
+  note       SessionNote?       @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  messages   ResearchMessage[]
+
+  @@index([scopeType])
+  @@index([projectId])
+  @@index([sessionId])
+  @@index([noteId])
+}
+
+model ResearchMessage {
+  id        String              @id @default(cuid())
+  threadId  String
+  thread    ResearchThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  role      ResearchMessageRole @default(USER)
+  content   String              @db.Text
+  createdAt DateTime            @default(now())
+
+  @@index([threadId, createdAt])
 }

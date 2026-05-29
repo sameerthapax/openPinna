@@ -29,8 +29,8 @@ export default function HomePage() {
           </div>
           <div className="flex flex-wrap gap-3">
             <Button asChild>
-              <Link href="/notes/new">
-                Create note <ArrowRightIcon className="h-4 w-4" />
+              <Link href="/notes">
+                Create project <ArrowRightIcon className="h-4 w-4" />
               </Link>
             </Button>
             <Button asChild variant="secondary">

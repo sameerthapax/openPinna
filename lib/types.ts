@@ -1,6 +1,19 @@
-import type { ResearchNote } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
-export type ResearchNoteRecord = ResearchNote;
+export type ProjectTreeRecord = Prisma.ProjectGetPayload<{
+  include: {
+    sessions: {
+      include: {
+        notes: {
+          select: {
+            id: true;
+            title: true;
+          };
+        };
+      };
+    };
+  };
+}>;
 
 export type StructuredNoteDraft = {
   structuredSummary: string;

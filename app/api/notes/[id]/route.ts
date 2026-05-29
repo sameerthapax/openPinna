@@ -1,24 +1,24 @@
 import {
   deleteNoteController,
   getNoteController,
-  updateNoteController,
-} from "../notes.controller";
+  patchNoteController,
+} from "@/app/api/research/research.controller";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-export async function GET(request: Request, context: RouteContext) {
+export async function GET(_request: Request, context: RouteContext) {
   const { id } = await context.params;
-  return getNoteController(request, id);
+  return getNoteController(id);
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
   const { id } = await context.params;
-  return updateNoteController(request, id);
+  return patchNoteController(request, id);
 }
 
-export async function DELETE(request: Request, context: RouteContext) {
+export async function DELETE(_request: Request, context: RouteContext) {
   const { id } = await context.params;
-  return deleteNoteController(request, id);
+  return deleteNoteController(id);
 }
