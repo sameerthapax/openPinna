@@ -1,0 +1,25 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ResearchNote {
+  id                String   @id @default(cuid())
+  title             String
+  sourceUrl         String
+  sourceTitle       String?
+  selectedText      String?  @db.Text
+  rawThought        String   @db.Text
+  structuredSummary String?  @db.Text
+  usefulness        String?
+  purpose           String?
+  tags              String[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([createdAt])
+}
