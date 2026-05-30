@@ -104,14 +104,52 @@ export async function getProjectCanvas(projectId: string) {
 }
 
 export async function createSession(projectId: string, input: CreateSessionInput) {
-  return db.researchSession.create({
-    data: {
-      projectId,
-      title: input.title.trim(),
-      sessionDate: input.sessionDate,
-      summary: optionalValue(input.summary),
+  const existing = await db.researchSession.findUnique({
+    where: {
+      projectId_sessionDate: {
+        projectId,
+        sessionDate: input.sessionDate,
+      },
     },
   });
+
+  if (existing) {
+    return existing;
+  }
+
+  try {
+    return await db.researchSession.create({
+      data: {
+        projectId,
+        title: input.title.trim(),
+        sessionDate: input.sessionDate,
+        summary: optionalValue(input.summary),
+      },
+    });
+  } catch (error) {
+    // Handle races where two clients create the same project+date session simultaneously.
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      const afterRace = await db.researchSession.findUnique({
+        where: {
+          projectId_sessionDate: {
+            projectId,
+            sessionDate: input.sessionDate,
+          },
+        },
+      });
+
+      if (afterRace) {
+        return afterRace;
+      }
+    }
+
+    throw error;
+  }
 }
 
 export async function getSessionById(sessionId: string) {

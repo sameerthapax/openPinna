@@ -31,8 +31,8 @@ export function PopupApp() {
       const nextSettings = await getSettings();
       setSettings(nextSettings);
 
-      if (!nextSettings.backendApiUrl.trim()) {
-        setStatus("Add a backend URL in Settings to sync notes.");
+      if (!nextSettings.backendApiUrl.trim() || !nextSettings.backendVerified) {
+        setStatus("Verify backend in Settings to sync notes.");
         setLastNote(null);
         return;
       }
@@ -43,7 +43,7 @@ export function PopupApp() {
         setStatus(notes.length ? "Connected." : "No synced notes yet.");
       } catch (error) {
         if (error instanceof BackendUrlMissingError) {
-          setStatus("Add a backend URL in Settings to sync notes.");
+          setStatus("Verify backend in Settings to sync notes.");
         } else {
           setStatus(
             error instanceof Error ? error.message : "Could not load notes.",
@@ -168,7 +168,7 @@ export function PopupApp() {
           </Button>
         </div>
 
-        {settings?.backendApiUrl.trim() ? (
+        {settings?.backendApiUrl.trim() && settings.backendVerified ? (
           <div className="rounded-[20px] border border-[var(--op-border)] bg-[var(--op-soft)] p-4">
             <div className="flex items-start gap-3">
               <span className="mt-0.5 grid h-7 w-7 place-items-center rounded-full border border-[var(--op-border)] bg-[var(--op-soft-strong)] text-[var(--op-text)]">

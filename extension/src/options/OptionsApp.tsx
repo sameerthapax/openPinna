@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ResetIcon, TrashIcon } from "@radix-ui/react-icons";
+import { Cross2Icon, ResetIcon, TrashIcon } from "@radix-ui/react-icons";
 import { Button } from "../components/Button";
 import { GlassPanel } from "../components/GlassPanel";
 import { TextInput } from "../components/TextInput";
@@ -10,7 +10,12 @@ import {
   saveSettings,
   subscribeToSettings,
 } from "../lib/chrome-storage";
-import { BackendUrlMissingError, clearCapturedNotes } from "../lib/backend";
+import {
+  BackendUrlMissingError,
+  clearCapturedNotes,
+  verifyBackend,
+  verifyOpenAi,
+} from "../lib/backend";
 import type { OpenPinnaSettings } from "../lib/types";
 import { parseTags } from "../lib/utils";
 
@@ -18,6 +23,8 @@ export function OptionsApp() {
   const [settings, setSettings] = useState<OpenPinnaSettings | null>(null);
   const [defaultTags, setDefaultTags] = useState("");
   const [status, setStatus] = useState("");
+  const [isServerLoading, setIsServerLoading] = useState(false);
+  const [loadingLabel, setLoadingLabel] = useState("");
 
   useEffect(() => {
     getSettings().then((nextSettings) => {
@@ -30,6 +37,14 @@ export function OptionsApp() {
       setDefaultTags(nextSettings.defaultTags.join(", "));
     });
   }, []);
+
+  useEffect(() => {
+    if (!settings) {
+      return;
+    }
+    document.body.setAttribute("data-theme", settings.darkMode ? "dark" : "light");
+    document.documentElement.setAttribute("data-theme", settings.darkMode ? "dark" : "light");
+  }, [settings]);
 
   if (!settings) {
     return (
@@ -55,6 +70,19 @@ export function OptionsApp() {
     });
   }
 
+  function isValidHttpUrl(value: string) {
+    try {
+      const url = new URL(value.trim());
+      return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }
+
+  function hasLikelyOpenAiKey(value: string) {
+    return value.trim().startsWith("sk-") && value.trim().length > 20;
+  }
+
   async function handleSave() {
     if (!settings) {
       return;
@@ -78,6 +106,8 @@ export function OptionsApp() {
   }
 
   async function handleClearNotes() {
+    setIsServerLoading(true);
+    setLoadingLabel("Clearing notes from backend...");
     try {
       await clearCapturedNotes();
       setStatus("Synced notes cleared from the backend.");
@@ -88,6 +118,62 @@ export function OptionsApp() {
       }
 
       setStatus(error instanceof Error ? error.message : "Could not clear notes.");
+    } finally {
+      setIsServerLoading(false);
+      setLoadingLabel("");
+    }
+  }
+
+  async function handleVerifyBackend() {
+    if (!settings?.backendApiUrl.trim()) {
+      setStatus("Add a backend API URL first.");
+      return;
+    }
+
+    if (!isValidHttpUrl(settings.backendApiUrl)) {
+      setStatus("Backend API URL must be a valid http/https URL.");
+      return;
+    }
+
+    try {
+      setIsServerLoading(true);
+      setLoadingLabel("Verifying backend...");
+      await verifyBackend(settings.backendApiUrl);
+      setStatus("Backend verified via /health.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Backend verification failed.");
+    } finally {
+      setIsServerLoading(false);
+      setLoadingLabel("");
+    }
+  }
+
+  async function handleVerifyOpenAi() {
+    if (!settings?.backendVerified) {
+      setStatus("Verify backend first, then verify OpenAI API key.");
+      return;
+    }
+
+    if (!settings?.openAiApiKey.trim()) {
+      setStatus("Add an OpenAI API key first.");
+      return;
+    }
+
+    if (!hasLikelyOpenAiKey(settings.openAiApiKey)) {
+      setStatus("OpenAI API key format looks invalid.");
+      return;
+    }
+
+    try {
+      setIsServerLoading(true);
+      setLoadingLabel("Verifying OpenAI API key...");
+      await verifyOpenAi(settings.openAiApiKey);
+      setStatus("OpenAI API key verified.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "OpenAI verification failed.");
+    } finally {
+      setIsServerLoading(false);
+      setLoadingLabel("");
     }
   }
 
@@ -156,16 +242,131 @@ export function OptionsApp() {
               onChange={(event) => setDefaultTags(event.target.value)}
               theme={settings.darkMode ? "dark" : "light"}
             />
-            <TextInput
-              label="Backend API URL"
-              value={settings.backendApiUrl}
-              placeholder="http://localhost:3000"
-              helper="Required for note sync. Settings themselves stay in Chrome storage."
-              onChange={(event) =>
-                updateSetting("backendApiUrl", event.target.value)
-              }
-              theme={settings.darkMode ? "dark" : "light"}
-            />
+            <div className="grid gap-2">
+              <TextInput
+                label="Backend API URL"
+                value={settings.backendApiUrl}
+                disabled={settings.backendVerified}
+                placeholder="http://localhost:3000"
+                helper={
+                  settings.backendVerified
+                    ? "Backend verified and locked."
+                    : "Required for note sync. Verification pings /health."
+                }
+                onChange={(event) =>
+                  setSettings((current) =>
+                    current
+                      ? {
+                          ...current,
+                          backendApiUrl: event.target.value,
+                          backendVerified: false,
+                        }
+                      : current,
+                  )
+                }
+                theme={settings.darkMode ? "dark" : "light"}
+              />
+              <div className="flex items-center gap-2">
+                {!settings.backendVerified &&
+                isValidHttpUrl(settings.backendApiUrl) ? (
+                  <Button
+                    variant="secondary"
+                    theme={settings.darkMode ? "dark" : "light"}
+                    disabled={isServerLoading}
+                    onClick={handleVerifyBackend}
+                  >
+                    Verify backend
+                  </Button>
+                ) : null}
+                {settings.backendVerified ? (
+                  <Button
+                    variant="ghost"
+                    theme={settings.darkMode ? "dark" : "light"}
+                    disabled={isServerLoading}
+                    onClick={() =>
+                      setSettings((current) =>
+                        current
+                          ? {
+                              ...current,
+                              backendApiUrl: "",
+                              backendVerified: false,
+                            }
+                          : current,
+                      )
+                    }
+                  >
+                    <Cross2Icon />
+                    Remove
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+            <div className="grid gap-2 md:col-span-2 rounded-[12px] border border-[var(--op-border)] bg-[var(--op-soft)] p-4">
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-[var(--op-muted)]">
+                API
+              </p>
+              <TextInput
+                label="OpenAI API key"
+                type="password"
+                value={settings.openAiApiKey}
+                disabled={settings.openAiVerified}
+                placeholder="sk-..."
+                helper={
+                  settings.openAiVerified
+                    ? "API key verified and locked."
+                    : settings.backendVerified
+                      ? "Used for upcoming AI workflows. Verify before capture modal unlocks."
+                      : "Verify backend first before OpenAI verification."
+                }
+                onChange={(event) =>
+                  setSettings((current) =>
+                    current
+                      ? {
+                          ...current,
+                          openAiApiKey: event.target.value,
+                          openAiVerified: false,
+                        }
+                      : current,
+                  )
+                }
+                theme={settings.darkMode ? "dark" : "light"}
+              />
+              <div className="flex items-center gap-2">
+                {!settings.openAiVerified &&
+                settings.backendVerified &&
+                hasLikelyOpenAiKey(settings.openAiApiKey) ? (
+                  <Button
+                    variant="secondary"
+                    theme={settings.darkMode ? "dark" : "light"}
+                    disabled={isServerLoading}
+                    onClick={handleVerifyOpenAi}
+                  >
+                    Verify OpenAI
+                  </Button>
+                ) : null}
+                {settings.openAiVerified ? (
+                  <Button
+                    variant="ghost"
+                    theme={settings.darkMode ? "dark" : "light"}
+                    disabled={isServerLoading}
+                    onClick={() =>
+                      setSettings((current) =>
+                        current
+                          ? {
+                              ...current,
+                              openAiApiKey: "",
+                              openAiVerified: false,
+                            }
+                          : current,
+                      )
+                    }
+                  >
+                    <Cross2Icon />
+                    Remove
+                  </Button>
+                ) : null}
+              </div>
+            </div>
             <label className="grid gap-2 md:col-span-2">
               <span className="text-xs font-medium uppercase tracking-[0.16em] text-[var(--op-muted)]">
                 Overlay shortcut
@@ -195,6 +396,7 @@ export function OptionsApp() {
               <Button
                 variant="danger"
                 theme={settings.darkMode ? "dark" : "light"}
+                disabled={isServerLoading}
                 onClick={handleClearNotes}
               >
                 <TrashIcon />
@@ -215,6 +417,16 @@ export function OptionsApp() {
           </section>
         </GlassPanel>
       </div>
+      {isServerLoading ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-[rgba(9,9,10,0.38)] backdrop-blur-[2px]">
+          <div className="op-glass rounded-[18px] px-5 py-4">
+            <div className="flex items-center gap-3">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--op-border-strong)] border-t-transparent" />
+              <p className="text-sm text-[var(--op-text)]">{loadingLabel || "Working..."}</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

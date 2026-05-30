@@ -5,6 +5,7 @@ import type {
   OpenPinnaBackgroundMessage,
   OpenPinnaBackgroundResponse,
   OpenPinnaCaptureDraft,
+  OpenPinnaProjectSummary,
 } from "./types";
 
 export class BackendUrlMissingError extends Error {
@@ -21,9 +22,25 @@ export class BackendRequestError extends Error {
   }
 }
 
+export class BackendNotVerifiedError extends Error {
+  constructor() {
+    super("Verify the backend URL in extension settings before saving notes.");
+    this.name = "BackendNotVerifiedError";
+  }
+}
+
+export class OpenAiNotVerifiedError extends Error {
+  constructor() {
+    super("Verify the OpenAI API key in extension settings before creating notes.");
+    this.name = "OpenAiNotVerifiedError";
+  }
+}
+
 function isBackendErrorCode(value: string): value is OpenPinnaBackgroundErrorCode {
   return (
     value === "BACKEND_URL_MISSING" ||
+    value === "BACKEND_NOT_VERIFIED" ||
+    value === "OPENAI_NOT_VERIFIED" ||
     value === "BACKEND_REQUEST_FAILED" ||
     value === "NOT_FOUND"
   );
@@ -75,6 +92,14 @@ function sendBackgroundMessage<T>(
             reject(new BackendUrlMissingError());
             return;
           }
+          if (isBackendErrorCode(response.code) && response.code === "BACKEND_NOT_VERIFIED") {
+            reject(new BackendNotVerifiedError());
+            return;
+          }
+          if (isBackendErrorCode(response.code) && response.code === "OPENAI_NOT_VERIFIED") {
+            reject(new OpenAiNotVerifiedError());
+            return;
+          }
 
           reject(new BackendRequestError(response.message));
           return;
@@ -107,6 +132,26 @@ export async function clearCapturedNotes(): Promise<number> {
   });
 
   return result.deletedCount;
+}
+
+export async function listProjects(): Promise<OpenPinnaProjectSummary[]> {
+  return sendBackgroundMessage<OpenPinnaProjectSummary[]>({
+    type: "LIST_PROJECTS",
+  });
+}
+
+export async function verifyBackend(backendApiUrl: string): Promise<void> {
+  await sendBackgroundMessage<{ verified: true }>({
+    type: "VERIFY_BACKEND",
+    backendApiUrl,
+  });
+}
+
+export async function verifyOpenAi(apiKey: string): Promise<void> {
+  await sendBackgroundMessage<{ verified: true }>({
+    type: "VERIFY_OPENAI",
+    apiKey,
+  });
 }
 
 export async function deleteCapturedNote(id: string): Promise<void> {

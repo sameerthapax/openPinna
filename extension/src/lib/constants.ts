@@ -10,6 +10,9 @@ export const DEFAULT_SETTINGS: OpenPinnaSettings = {
   darkMode: true,
   defaultTags: [],
   backendApiUrl: "",
+  backendVerified: false,
+  openAiApiKey: "",
+  openAiVerified: false,
   captureShortcut: "mod+shift+p",
 };
 
