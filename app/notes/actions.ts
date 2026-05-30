@@ -2,82 +2,43 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import {
-  createNoteSchema,
-  createProjectSchema,
-  createSessionSchema,
-} from "@/app/api/research/research.schemas";
-import {
-  createNote,
-  createProject,
-  createSession,
-} from "@/app/api/research/research.service";
+import { createProjectSchema, createNoteSchema } from "@/app/api/_lib/validation";
+import { createProject } from "@/app/api/_lib/services/project.service";
+import { getOrCreateTodaySession } from "@/app/api/_lib/services/session.service";
+import { createNote } from "@/app/api/_lib/services/note.service";
 
 export async function createProjectAction(formData: FormData) {
   const parsed = createProjectSchema.safeParse({
     title: formData.get("title"),
     description: formData.get("description"),
   });
-
-  if (!parsed.success) {
-    return;
-  }
+  if (!parsed.success) return;
 
   await createProject(parsed.data);
   revalidatePath("/notes");
-
-  return;
 }
 
-export async function createSessionAction(projectId: string, formData: FormData) {
-  const parsed = createSessionSchema.safeParse({
-    title: formData.get("title"),
-    sessionDate: formData.get("sessionDate"),
-    summary: formData.get("summary"),
-  });
-
-  if (!parsed.success) {
-    return;
-  }
-
-  await createSession(projectId, parsed.data);
+export async function createSessionAction(projectId: string) {
+  await getOrCreateTodaySession(projectId);
   revalidatePath(`/notes/${projectId}`);
   revalidatePath("/notes");
-
-  return;
 }
 
 export async function createSessionNoteAction(sessionId: string, formData: FormData) {
   const parsed = createNoteSchema.safeParse({
-    sessionId,
-    title: formData.get("title"),
-    sourceUrl: formData.get("sourceUrl"),
-    sourceTitle: formData.get("sourceTitle"),
-    selectedText: formData.get("selectedText"),
-    body: formData.get("body"),
-    tags: formData.get("tags"),
-    boardX: Number(formData.get("boardX") ?? 0),
-    boardY: Number(formData.get("boardY") ?? 0),
+    noteText: formData.get("body") || formData.get("noteText"),
+    sourceId: formData.get("sourceId"),
+    captureId: formData.get("captureId"),
+    userCommentary: formData.get("userCommentary"),
   });
+  if (!parsed.success) return;
 
-  if (!parsed.success) {
-    return;
-  }
+  const session = await db.session.findUnique({ where: { id: sessionId }, select: { id: true, projectId: true } });
+  if (!session) return;
 
-  const session = await db.researchSession.findUnique({
-    where: { id: sessionId },
-    select: { id: true, projectId: true },
-  });
-
-  if (!session) {
-    return;
-  }
-
-  await createNote(parsed.data);
+  await createNote({ projectId: session.projectId, sessionId, ...parsed.data });
 
   revalidatePath(`/notes/${session.projectId}/sessions/${session.id}`);
   revalidatePath(`/notes/${session.projectId}`);
   revalidatePath("/notes");
-
-  return;
 }

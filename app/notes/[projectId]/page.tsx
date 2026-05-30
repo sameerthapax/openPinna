@@ -21,9 +21,9 @@ export default async function ProjectCanvasPage({ params }: { params: Promise<{ 
     where: { id: projectId },
     include: {
       sessions: {
-        orderBy: { sessionDate: "asc" },
+        orderBy: { sessionKey: "asc" },
         include: {
-          notes: { orderBy: { capturedAt: "desc" }, select: { id: true, title: true, body: true } },
+          notes: { orderBy: { createdAt: "desc" }, select: { id: true, noteText: true } },
         },
       },
     },
@@ -66,8 +66,8 @@ export default async function ProjectCanvasPage({ params }: { params: Promise<{ 
                   href={`/notes/${project.id}/sessions/${session.id}`}
                   className="block w-[240px] border border-[var(--border)] bg-[var(--surface-soft)] p-3 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:scale-[1.02]"
                 >
-                  <p className="font-mono-ui text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Session {new Date(session.sessionDate).toLocaleDateString()}</p>
-                  <h2 className="mt-1 text-base font-semibold">{session.title}</h2>
+                  <p className="font-mono-ui text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">Session {new Date(session.sessionKey).toLocaleDateString()}</p>
+                  <h2 className="mt-1 text-base font-semibold">Research Session</h2>
                 </Link>
 
                 <div className="absolute left-[360px] top-0 w-[540px] space-y-[10px]">
@@ -80,8 +80,8 @@ export default async function ProjectCanvasPage({ params }: { params: Promise<{ 
                         href={`/notes/${project.id}/sessions/${session.id}/notes/${note.id}`}
                         className="block min-h-[84px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:translate-x-[2px] hover:bg-[var(--surface-soft)]"
                       >
-                        <p className="text-sm font-medium">{note.title}</p>
-                        <p className="mt-1 line-clamp-2 text-xs text-[var(--muted-foreground)]">{note.body}</p>
+                        <p className="text-sm font-medium">{note.noteText.slice(0, 80)}</p>
+                        <p className="mt-1 line-clamp-2 text-xs text-[var(--muted-foreground)]">{note.noteText}</p>
                       </Link>
                     ))
                   ) : (

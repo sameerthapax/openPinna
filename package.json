@@ -12,7 +12,11 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "workers:start": "tsx app/api/_lib/workers/index.ts",
+    "docker:up": "./scripts/docker-up.sh",
+    "docker:down": "./scripts/docker-down.sh",
+    "docker:reset": "./scripts/docker-down.sh -v"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",
@@ -23,6 +27,9 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "d3": "^7.9.0",
+    "bullmq": "^5.12.12",
+    "ioredis": "^5.4.1",
+    "multer": "^2.0.2",
     "next": "^15.3.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -42,5 +49,7 @@
     "prisma": "^6.8.2",
     "tailwindcss": "^4.1.7",
     "typescript": "^5.8.3"
+    ,
+    "tsx": "^4.20.6"
   }
 }

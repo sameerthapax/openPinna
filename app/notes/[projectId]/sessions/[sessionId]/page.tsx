@@ -6,12 +6,11 @@ import { OpenCreateButton } from "@/components/navigation/OpenCreateButton";
 export default async function SessionPage({ params }: { params: Promise<{ projectId: string; sessionId: string }> }) {
   const { projectId, sessionId } = await params;
 
-  const session = await db.researchSession.findUnique({
+  const session = await db.session.findUnique({
     where: { id: sessionId },
     include: {
       project: true,
-      notes: { orderBy: { capturedAt: "desc" } },
-      threads: { include: { messages: { orderBy: { createdAt: "asc" } } } },
+      notes: { orderBy: { createdAt: "desc" } },
     },
   });
 
@@ -23,7 +22,7 @@ export default async function SessionPage({ params }: { params: Promise<{ projec
         <div className="mb-4 max-w-[680px]">
           <p className="font-mono-ui text-[11px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Session timeline map</p>
           <h1 className="font-editorial mt-2 text-5xl tracking-[-0.04em]">{session.project.title}</h1>
-          <p className="mt-2 text-xl text-[var(--muted-foreground)]">Session: {session.title} ({new Date(session.sessionDate).toLocaleDateString()})</p>
+          <p className="mt-2 text-xl text-[var(--muted-foreground)]">Session: {new Date(session.sessionKey).toLocaleDateString()}</p>
         </div>
 
         {session.notes.length === 0 ? (
@@ -34,7 +33,16 @@ export default async function SessionPage({ params }: { params: Promise<{ projec
             </div>
           </div>
         ) : (
-          <SessionCanvas projectId={projectId} sessionId={sessionId} notes={session.notes.map((note) => ({ ...note, capturedAt: note.capturedAt }))} />
+          <SessionCanvas
+            projectId={projectId}
+            sessionId={sessionId}
+            notes={session.notes.map((note) => ({
+              id: note.id,
+              title: note.noteText.slice(0, 72),
+              body: note.noteText,
+              capturedAt: note.createdAt,
+            }))}
+          />
         )}
       </section>
     </div>

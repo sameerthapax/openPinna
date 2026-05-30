@@ -435,16 +435,6 @@ export function OverlayApp() {
   const [status, setStatus] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const sessionDateIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
-  const sessionTitle = useMemo(
-    () =>
-      new Date().toLocaleDateString([], {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      }),
-    [],
-  );
 
   useEffect(() => {
     let active = true;
@@ -604,7 +594,6 @@ export function OverlayApp() {
 
     const draft = {
       projectId: selectedProjectId,
-      sessionTitle,
       sessionDate: sessionDateIso,
       pageTitle,
       pageUrl,
@@ -844,16 +833,14 @@ export function OverlayApp() {
                           </select>
                         </label>
 
-                        <div className="op-row">
-                          <label className="op-field" style={{ flex: 1 }}>
-                            <span className="op-label">Session title</span>
-                            <input className="op-input" value={sessionTitle} disabled />
-                          </label>
-                          <label className="op-field" style={{ flex: 1 }}>
-                            <span className="op-label">Session date</span>
-                            <input className="op-input" value={sessionDateIso} disabled />
-                          </label>
-                        </div>
+                        <label className="op-field">
+                          <span className="op-label">Session</span>
+                          <input
+                            className="op-input"
+                            value={`${sessionDateIso} (auto-created if missing)`}
+                            disabled
+                          />
+                        </label>
 
                         <label className="op-field">
                           <span className="op-label">What did you notice?</span>

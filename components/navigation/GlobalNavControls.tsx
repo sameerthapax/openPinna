@@ -35,10 +35,22 @@ export function GlobalNavControls() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [pinnaMenuOpen, setPinnaMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   const { projectId, sessionId, scope } = useMemo(() => parsePath(pathname), [pathname]);
   const backHref = useMemo(() => parentPath(pathname), [pathname]);
+  const isNoteDetail = useMemo(
+    () => /^\/notes\/[^/]+\/sessions\/[^/]+\/notes\/[^/]+$/.test(pathname),
+    [pathname],
+  );
+  const pinnaQuestions = [
+    "Why does this claim matter?",
+    "How would this work in practice?",
+    "Is this actually true?",
+    "What is the strongest counterpoint?",
+    "What should I do with this insight?",
+  ];
 
   useEffect(() => {
     setMounted(true);
@@ -111,6 +123,36 @@ export function GlobalNavControls() {
       <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
         <ThemeModeToggle />
         {backHref ? <Link href={backHref} className="rounded-[6px] px-3 py-2 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]">Back</Link> : null}
+        {isNoteDetail ? (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setPinnaMenuOpen((current) => !current)}
+              className="rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-[var(--surface-soft)] active:scale-[0.98]"
+            >
+              + Add Pinna
+            </button>
+            {pinnaMenuOpen ? (
+              <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-[320px] border border-[var(--border)] bg-[var(--surface)] p-2">
+                {pinnaQuestions.map((question) => (
+                  <button
+                    key={question}
+                    type="button"
+                    className="block w-full border border-transparent px-3 py-2 text-left text-sm transition-colors hover:border-[var(--border)] hover:bg-[var(--surface-soft)]"
+                    onClick={() => {
+                      window.dispatchEvent(
+                        new CustomEvent("add-pinna", { detail: { question } }),
+                      );
+                      setPinnaMenuOpen(false);
+                    }}
+                  >
+                    {question}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <button type="button" onClick={() => setOpen(true)} className="btn-primary inline-flex items-center gap-2 rounded-[6px] px-3 py-2 font-medium transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.98]">
           <PlusIcon className="h-4 w-4" />
           New

@@ -63,6 +63,12 @@ Update `DATABASE_URL` in `.env` if your local PostgreSQL credentials differ.
 
 ## Database Setup
 
+Start local infrastructure first (Postgres + Redis via Docker):
+
+```bash
+npm run docker:up
+```
+
 Generate Prisma Client:
 
 ```bash
@@ -166,3 +172,109 @@ npm run build
 3. Voice-to-note capture
 4. AI structured notes
 5. Research graph and semantic search
+
+## Layered Research Memory Backend
+
+### Knowledge Flow Rule
+
+Thread-level chat context is isolated to a single note thread.
+Knowledge flows upward asynchronously only:
+
+`Thread -> Note -> Session -> Project`
+
+### Required Environment Variables
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `REDIS_URL` | Redis connection used by BullMQ |
+| `OPENAI_API_KEY` | Optional. Enables future embedding/model integrations |
+| `UPLOAD_DIR` | Local upload root, defaults to `./uploads` |
+| `POSTGRES_START_PORT` | Optional start port for Postgres dynamic scan (default `9001`) |
+| `REDIS_START_PORT` | Optional start port for Redis dynamic scan (default `9002`) |
+
+### Database Setup
+
+1. Start PostgreSQL and Redis with dynamic ports (`npm run docker:up`).
+2. Generate Prisma client:
+
+```bash
+npm run db:generate
+```
+
+3. Run migrations:
+
+```bash
+npm run db:migrate -- --name layered_research_memory
+```
+
+Migration creates:
+- `uuid-ossp` and `vector` extensions
+- layered memory tables (`projects`, `sessions`, `sources`, `captures`, `notes`, `chat_threads`, `chat_messages`, `knowledge_events`, `knowledge_nodes`, `knowledge_edges`)
+- updated-at trigger function and table triggers
+- required indexes
+
+### Start API and Workers
+
+```bash
+npm run dev
+npm run workers:start
+```
+
+### Upload Behavior
+
+Uploads stay on local disk and are never stored as bytes in Postgres.
+
+- Sources: `./uploads/projects/:projectId/sessions/:sessionId/sources/`
+- Captures: `./uploads/projects/:projectId/sessions/:sessionId/captures/`
+
+Only paths and metadata are persisted in the database.
+
+### Manual Verification (curl)
+
+1. Create a project
+
+```bash
+curl -X POST http://localhost:3000/api/projects -H 'content-type: application/json' -d '{"title":"My Project"}'
+```
+
+2. Create/get today's session
+
+```bash
+curl -X POST http://localhost:3000/api/projects/<projectId>/sessions/today
+```
+
+3. Upload source file
+
+```bash
+curl -X POST http://localhost:3000/api/projects/<projectId>/sessions/<sessionId>/sources/upload -F "file=@/path/to/paper.pdf"
+```
+
+4. Create note
+
+```bash
+curl -X POST http://localhost:3000/api/projects/<projectId>/sessions/<sessionId>/notes -H 'content-type: application/json' -d '{"noteText":"Key claim from source","sourceId":"<sourceId>"}'
+```
+
+5. Create thread
+
+```bash
+curl -X POST http://localhost:3000/api/notes/<noteId>/threads -H 'content-type: application/json' -d '{"threadType":"critique","title":"Is this claim justified?"}'
+```
+
+6. Send message
+
+```bash
+curl -X POST http://localhost:3000/api/threads/<threadId>/messages -H 'content-type: application/json' -d '{"userMessage":"What evidence supports this?"}'
+```
+
+7. Confirm thread-memory job side effects
+
+- `chat_threads.summary` updates
+- a `knowledge_events` row with `event_type=thread_summary_updated`
+
+8. Confirm upward propagation
+
+- note summary updates after thread refresh
+- session summary updates after note refresh
+- project summary updates after session refresh

@@ -8,7 +8,6 @@ import { resolveBackendRoute } from "../lib/backend";
 
 type BackendNoteRequest = {
   projectId: string;
-  sessionTitle: string;
   sessionDate: string;
   title: string;
   sourceUrl: string;
@@ -18,10 +17,7 @@ type BackendNoteRequest = {
   tags: string[];
 };
 
-type SessionResponse = {
-  id: string;
-  sessionDate?: string;
-};
+type SessionResponse = { id: string };
 
 const originalFetch = globalThis.fetch.bind(globalThis);
 
@@ -143,41 +139,20 @@ async function listNotesFromBackend() {
 
 async function saveNoteToBackend(note: BackendNoteRequest) {
   const baseUrl = await readBackendBaseUrl();
-  const project = await requestJson<{ sessions?: SessionResponse[] }>(
+  const session = await requestJson<SessionResponse>(
     baseUrl,
-    `/api/projects/${note.projectId}`,
+    `/api/projects/${note.projectId}/sessions/today`,
+    { method: "POST" },
   );
 
-  const existingSession = (project.sessions ?? []).find(
-    (session) =>
-      typeof session.sessionDate === "string" &&
-      session.sessionDate.slice(0, 10) === note.sessionDate,
-  );
-
-  const session =
-    existingSession ??
-    (await requestJson<SessionResponse>(
-      baseUrl,
-      `/api/projects/${note.projectId}/sessions`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          title: note.sessionTitle,
-          sessionDate: note.sessionDate,
-          summary: "",
-        }),
-      },
-    ));
-
-  return requestJson<OpenPinnaBackendNote>(baseUrl, `/api/sessions/${session.id}/notes`, {
+  return requestJson<OpenPinnaBackendNote>(
+    baseUrl,
+    `/api/projects/${note.projectId}/sessions/${session.id}/notes`,
+    {
     method: "POST",
     body: JSON.stringify({
-      title: note.title,
-      sourceUrl: note.sourceUrl,
-      sourceTitle: note.sourceTitle,
-      selectedText: note.selectedText,
-      body: note.body,
-      tags: note.tags,
+      noteText: note.body,
+      userCommentary: note.selectedText || null,
     }),
   });
 }
@@ -301,7 +276,6 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
         await assertSettingsVerified(true);
         const note = await saveNoteToBackend({
           projectId: message.note.projectId,
-          sessionTitle: message.note.sessionTitle,
           sessionDate: message.note.sessionDate,
           title: message.note.pageTitle || "Untitled page",
           sourceUrl: message.note.pageUrl,

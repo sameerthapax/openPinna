@@ -15,8 +15,8 @@ export default async function NotesPage() {
     orderBy: { createdAt: "desc" },
     include: {
       sessions: {
-        orderBy: { sessionDate: "asc" },
-        include: { notes: { orderBy: { capturedAt: "asc" }, select: { id: true, title: true } } },
+        orderBy: { sessionKey: "asc" },
+        include: { notes: { orderBy: { createdAt: "asc" }, select: { id: true, noteText: true } } },
       },
     },
   });
@@ -73,11 +73,11 @@ export default async function NotesPage() {
                 {layout.map(({ session, centerY, blockHeight }) => (
                   <div key={session.id} className="absolute" style={{ left: 380, top: centerY - 7 }}>
                     <div data-node="session-dot" data-session-id={session.id} className="group/session relative h-4 w-4 rounded-full border border-[var(--foreground)]/50 bg-[var(--surface)]">
-                      <div className="pointer-events-none absolute -left-10 -top-10 hidden rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--muted-foreground)] group-hover/session:block">{new Date(session.sessionDate).toLocaleDateString()}</div>
+                      <div className="pointer-events-none absolute -left-10 -top-10 hidden rounded-[6px] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[11px] text-[var(--muted-foreground)] group-hover/session:block">{new Date(session.sessionKey).toLocaleDateString()}</div>
                     </div>
                     <div className="absolute left-[184px] w-[500px] space-y-2" style={{ top: -(blockHeight / 2) }}>
                       {session.notes.length > 0 ? session.notes.map((note) => (
-                        <Link key={note.id} data-node="note-card" data-note-id={note.id} href={`/notes/${project.id}/sessions/${session.id}/notes/${note.id}`} className="block border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:translate-x-[2px] hover:bg-[var(--surface)]">{note.title}</Link>
+                        <Link key={note.id} data-node="note-card" data-note-id={note.id} href={`/notes/${project.id}/sessions/${session.id}/notes/${note.id}`} className="block border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:translate-x-[2px] hover:bg-[var(--surface)]">{note.noteText.slice(0, 120)}</Link>
                       )) : <div className="border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--muted-foreground)]">No notes</div>}
                     </div>
                   </div>

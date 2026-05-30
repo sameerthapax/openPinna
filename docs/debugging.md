@@ -57,3 +57,74 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 - Added `web_accessible_resources` for `icons/openPinnaLogo.png` in the extension manifest.
 - Added a graceful fallback in the overlay bubble (`op`) when the logo cannot load.
 - Cleared `.next` cache directory before restarting dev.
+
+## New Issue
+- After creating a project, `/notes` appeared blank even though project creation succeeded.
+
+## Suspected Cause
+- The `/notes` page refactor removed the visible project header/card and only rendered session/note branches. For projects with zero sessions, the canvas had no visible content.
+
+## Files Touched
+- `app/notes/page.tsx`
+
+## Fix Attempted
+- Restored a visible project card/title block in the canvas for each project.
+- Added an explicit empty-state message when a project has no sessions yet.
+
+## Final Result
+- Newly created projects are now visible immediately on `/notes`, even before sessions/notes exist.
+
+## New Issue
+- Project cards on `/notes` were visible but not clickable to open the project canvas.
+- Extension note sync returned HTTP 405 because the background worker still called legacy note/session endpoints.
+- Extension UI still showed `Session title`, but sessions are now date-keyed and auto-created.
+
+## Suspected Cause
+- Frontend refactor changed project card from link-like behavior to a static container.
+- Backend API moved to new routes (`/api/projects/:projectId/sessions/today`, `/api/projects/:projectId/sessions/:sessionId/notes`) but extension worker was still using old routes.
+- Extension payload and UI still included the deprecated session title concept.
+
+## Files Touched
+- `app/notes/page.tsx`
+- `app/api/_lib/services/note.service.ts`
+- `app/api/notes/route.ts`
+- `app/api/notes/[noteId]/route.ts`
+- `extension/src/background/service-worker.ts`
+- `extension/src/lib/types.ts`
+- `extension/src/content/OverlayApp.tsx`
+
+## Fix Attempted
+- Made project card on `/notes` a direct link to `/notes/:projectId`.
+- Added `GET /api/notes` and `DELETE /api/notes/:noteId` compatibility handlers for extension popup/history operations.
+- Updated extension background save flow to:
+  1. call `POST /api/projects/:projectId/sessions/today` (auto-create session)
+  2. call `POST /api/projects/:projectId/sessions/:sessionId/notes` with new note payload.
+- Removed `sessionTitle` from extension data model and overlay save payload.
+- Replaced overlay `Session title` + `Session date` controls with a single read-only session line showing auto-create behavior.
+
+## Final Result
+- Project card is now clickable to open the project page.
+- Extension save flow targets current API and auto-creates today session when missing.
+- Extension UI no longer asks for session title.
+
+## New Issue
+- Notes/project/session pages rendered as plain fallback layouts after backend schema refactor.
+
+## Suspected Cause
+- Temporary simplified page implementations replaced the original D3/editorial UI layouts during compatibility fixes.
+
+## Files Touched
+- `app/notes/page.tsx`
+- `app/notes/[projectId]/page.tsx`
+- `app/notes/[projectId]/sessions/[sessionId]/page.tsx`
+- `app/notes/[projectId]/sessions/[sessionId]/notes/[noteId]/page.tsx`
+
+## Fix Attempted
+- Restored the original high-fidelity page compositions and connector-based hierarchy UI.
+- Remapped old data fields to new schema fields:
+  - `sessionDate -> sessionKey`
+  - `title/body/capturedAt -> noteText/createdAt`-derived display values
+  - `threads/topicType -> chatThreads/threadType`
+
+## Final Result
+- The original UI style and structure is restored while using the new backend schema.

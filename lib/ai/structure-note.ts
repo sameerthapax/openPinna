@@ -6,13 +6,12 @@ import type { StructuredNoteDraft } from "@/lib/types";
 export async function structureResearchNote(
   note: NoteFormValues,
 ): Promise<StructuredNoteDraft> {
-  const sourceContext = note.sourceTitle || note.sourceUrl;
-  const selectedTextHint = note.selectedText
-    ? "Includes source selection for later grounding."
-    : "No selected text captured yet.";
+  const selectedTextHint = note.userCommentary
+    ? "Includes user commentary for later grounding."
+    : "No user commentary captured yet.";
 
   return {
-    structuredSummary: `Placeholder summary for "${note.title}" from ${sourceContext}. ${selectedTextHint}`,
+    structuredSummary: `Placeholder summary for "${note.noteText.slice(0, 80)}". ${selectedTextHint}`,
     usefulness:
       "Placeholder usefulness: identify whether this note supports, challenges, or extends the current research question.",
     purpose:

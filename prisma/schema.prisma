@@ -1,117 +1,231 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-}
-
-enum ResearchScopeType {
-  PROJECT
-  SESSION
-  NOTE
-}
-
-enum ResearchTopicType {
-  GENERAL
-  QUESTION
-  STATEMENT
-  FIT
-  WEAKNESS
-  STRENGTH
-  CONTRADICTION
-  METHODOLOGY
-  FINDING
-  CONCLUSION
-  EXPERIMENT
-  SENTIMENT
-}
-
-enum ResearchMessageRole {
-  USER
-  ASSISTANT
-  SYSTEM
+  extensions = [uuidOssp(map: "uuid-ossp")]
 }
 
 model Project {
-  id          String           @id @default(cuid())
-  title       String
-  description String?          @db.Text
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  sessions    ResearchSession[]
-  threads     ResearchThread[]
+  id               String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId           String?          @map("user_id") @db.Uuid
+  title            String
+  description      String?          @db.Text
+  projectSummary   String?          @map("project_summary") @db.Text
+  projectEmbedding Unsupported("vector(1536)")? @map("project_embedding")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime         @default(now()) @map("updated_at") @db.Timestamptz(6)
+  sessions         Session[]
+  sources          Source[]
+  notes            Note[]
+  chatThreads      ChatThread[]
+  knowledgeEvents  KnowledgeEvent[]
+  knowledgeNodes   KnowledgeNode[]
 
-  @@index([createdAt])
+  @@map("projects")
 }
 
-model ResearchSession {
-  id          String           @id @default(cuid())
-  projectId   String
-  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  sessionDate DateTime
-  title       String
-  summary     String?          @db.Text
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  notes       SessionNote[]
-  threads     ResearchThread[]
+model Session {
+  id               String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  projectId        String           @map("project_id") @db.Uuid
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sessionKey       DateTime         @map("session_key") @db.Date
+  title            String?
+  sessionSummary   String?          @map("session_summary") @db.Text
+  sessionEmbedding Unsupported("vector(1536)")? @map("session_embedding")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime         @default(now()) @map("updated_at") @db.Timestamptz(6)
+  sources          Source[]
+  captures         Capture[]
+  notes            Note[]
+  chatThreads      ChatThread[]
+  knowledgeEvents  KnowledgeEvent[]
+  knowledgeNodes   KnowledgeNode[]
+
+  @@unique([projectId, sessionKey])
+  @@index([projectId, sessionKey])
+  @@map("sessions")
+}
+
+model Source {
+  id               String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  projectId        String      @map("project_id") @db.Uuid
+  sessionId        String      @map("session_id") @db.Uuid
+  project          Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session          Session     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sourceType       String      @default("paper") @map("source_type")
+  title            String?
+  abstract         String?     @db.Text
+  authors          Json        @default("[]")
+  publicationYear  Int?        @map("publication_year")
+  publicationDate  DateTime?   @map("publication_date") @db.Date
+  venue            String?
+  doi              String?
+  url              String?
+  pdfUrl           String?     @map("pdf_url")
+  filePath         String?     @map("file_path")
+  originalFilename String?     @map("original_filename")
+  mimeType         String?     @map("mime_type")
+  fileSizeBytes    BigInt?     @map("file_size_bytes")
+  fullText         String?     @map("full_text") @db.Text
+  metadata         Json        @default("{}")
+  createdAt        DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime    @default(now()) @map("updated_at") @db.Timestamptz(6)
+  captures         Capture[]
+  notes            Note[]
+  knowledgeNodes   KnowledgeNode[]
 
   @@index([projectId])
-  @@index([sessionDate])
-  @@unique([projectId, sessionDate])
-}
-
-model SessionNote {
-  id           String           @id @default(cuid())
-  sessionId    String
-  session      ResearchSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  title        String
-  sourceUrl    String?
-  sourceTitle  String?
-  selectedText String?          @db.Text
-  body         String           @db.Text
-  tags         String[]
-  boardX       Float            @default(0)
-  boardY       Float            @default(0)
-  capturedAt   DateTime         @default(now())
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  threads      ResearchThread[]
-
   @@index([sessionId])
-  @@index([capturedAt])
+  @@map("sources")
 }
 
-model ResearchThread {
-  id         String             @id @default(cuid())
-  scopeType  ResearchScopeType
-  topicType  ResearchTopicType
-  title      String
-  projectId  String?
-  project    Project?           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  sessionId  String?
-  session    ResearchSession?   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  noteId     String?
-  note       SessionNote?       @relation(fields: [noteId], references: [id], onDelete: Cascade)
-  createdAt  DateTime           @default(now())
-  updatedAt  DateTime           @updatedAt
-  messages   ResearchMessage[]
+model Capture {
+  id              String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  sourceId        String    @map("source_id") @db.Uuid
+  sessionId       String    @map("session_id") @db.Uuid
+  source          Source    @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  session         Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  imagePath       String    @map("image_path")
+  pageNumber      Int?      @map("page_number")
+  xPosition       Decimal?  @map("x_position") @db.Decimal
+  yPosition       Decimal?  @map("y_position") @db.Decimal
+  selectedText    String?   @map("selected_text") @db.Text
+  surroundingText String?   @map("surrounding_text") @db.Text
+  caption         String?
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  notes           Note[]
 
-  @@index([scopeType])
+  @@map("captures")
+}
+
+model Note {
+  id               String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  projectId        String           @map("project_id") @db.Uuid
+  sessionId        String           @map("session_id") @db.Uuid
+  sourceId         String?          @map("source_id") @db.Uuid
+  captureId        String?          @map("capture_id") @db.Uuid
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session          Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  source           Source?          @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  capture          Capture?         @relation(fields: [captureId], references: [id], onDelete: SetNull)
+  noteText         String           @map("note_text") @db.Text
+  userCommentary   String?          @map("user_commentary") @db.Text
+  aiExtractedClaim String?          @map("ai_extracted_claim") @db.Text
+  noteSummary      String?          @map("note_summary") @db.Text
+  importanceScore  Decimal          @default(0) @map("importance_score") @db.Decimal
+  noteEmbedding    Unsupported("vector(1536)")? @map("note_embedding")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime         @default(now()) @map("updated_at") @db.Timestamptz(6)
+  chatThreads      ChatThread[]
+  knowledgeEvents  KnowledgeEvent[]
+  knowledgeNodes   KnowledgeNode[]
+
   @@index([projectId])
   @@index([sessionId])
+  @@index([sourceId])
+  @@map("notes")
+}
+
+model ChatThread {
+  id              String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  projectId       String           @map("project_id") @db.Uuid
+  sessionId       String           @map("session_id") @db.Uuid
+  noteId          String           @map("note_id") @db.Uuid
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session         Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  note            Note             @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  threadType      String           @map("thread_type")
+  title           String?
+  summary         String?          @db.Text
+  embedding       Unsupported("vector(1536)")?
+  status          String           @default("active")
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime         @default(now()) @map("updated_at") @db.Timestamptz(6)
+  messages        ChatMessage[]
+  knowledgeEvents KnowledgeEvent[]
+  knowledgeNodes  KnowledgeNode[]
+
   @@index([noteId])
+  @@index([sessionId])
+  @@map("chat_threads")
 }
 
-model ResearchMessage {
-  id        String              @id @default(cuid())
-  threadId  String
-  thread    ResearchThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  role      ResearchMessageRole @default(USER)
-  content   String              @db.Text
-  createdAt DateTime            @default(now())
+model ChatMessage {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  threadId  String   @map("thread_id") @db.Uuid
+  thread    ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  role      String
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([threadId, createdAt])
+  @@map("chat_messages")
+}
+
+model KnowledgeEvent {
+  id              String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  projectId       String           @map("project_id") @db.Uuid
+  sessionId       String           @map("session_id") @db.Uuid
+  noteId          String?          @map("note_id") @db.Uuid
+  threadId        String?          @map("thread_id") @db.Uuid
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session         Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  note            Note?            @relation(fields: [noteId], references: [id], onDelete: SetNull)
+  thread          ChatThread?      @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  eventType       String           @map("event_type")
+  content         String           @db.Text
+  importanceScore Decimal          @default(0) @map("importance_score") @db.Decimal
+  confidenceScore Decimal          @default(0) @map("confidence_score") @db.Decimal
+  status          String           @default("pending")
+  embedding       Unsupported("vector(1536)")?
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([projectId, status])
+  @@index([sessionId, status])
+  @@map("knowledge_events")
+}
+
+model KnowledgeNode {
+  id         String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  projectId  String           @map("project_id") @db.Uuid
+  sessionId  String?          @map("session_id") @db.Uuid
+  noteId     String?          @map("note_id") @db.Uuid
+  threadId   String?          @map("thread_id") @db.Uuid
+  sourceId   String?          @map("source_id") @db.Uuid
+  project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session    Session?         @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  note       Note?            @relation(fields: [noteId], references: [id], onDelete: SetNull)
+  thread     ChatThread?      @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  source     Source?          @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  nodeType   String           @map("node_type")
+  label      String
+  summary    String?          @db.Text
+  embedding  Unsupported("vector(1536)")?
+  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime         @default(now()) @map("updated_at") @db.Timestamptz(6)
+  fromEdges  KnowledgeEdge[]  @relation("FromNode")
+  toEdges    KnowledgeEdge[]  @relation("ToNode")
+
+  @@index([projectId])
+  @@map("knowledge_nodes")
+}
+
+model KnowledgeEdge {
+  id          String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  fromNodeId  String         @map("from_node_id") @db.Uuid
+  toNodeId    String         @map("to_node_id") @db.Uuid
+  fromNode    KnowledgeNode  @relation("FromNode", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode      KnowledgeNode  @relation("ToNode", fields: [toNodeId], references: [id], onDelete: Cascade)
+  edgeType    String         @map("edge_type")
+  weight      Decimal        @default(1) @db.Decimal
+  explanation String?        @db.Text
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([fromNodeId])
+  @@index([toNodeId])
+  @@map("knowledge_edges")
 }

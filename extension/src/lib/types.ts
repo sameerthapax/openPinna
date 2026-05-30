@@ -12,7 +12,6 @@ export type OpenPinnaSettings = {
 
 export type OpenPinnaCaptureDraft = {
   projectId: string;
-  sessionTitle: string;
   sessionDate: string;
   pageTitle: string;
   pageUrl: string;
