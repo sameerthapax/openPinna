@@ -6,18 +6,26 @@ import { usePathname, useRouter } from "next/navigation";
 import { Cross2Icon, PlusIcon } from "@radix-ui/react-icons";
 import { createPortal } from "react-dom";
 import { ThemeModeToggle } from "@/components/navigation/ThemeModeToggle";
+import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 type CreateScope = "project" | "session" | "note";
+type PinnaTemplate = {
+  id: string;
+  key: string;
+  name: string;
+  defaultTitle: string | null;
+  description: string | null;
+};
 
 function parsePath(pathname: string) {
   const projectMatch = pathname.match(/^\/notes\/([^/]+)$/);
   const sessionMatch = pathname.match(/^\/notes\/([^/]+)\/sessions\/([^/]+)$/);
   const noteMatch = pathname.match(/^\/notes\/([^/]+)\/sessions\/([^/]+)\/notes\/([^/]+)$/);
 
-  if (noteMatch) return { projectId: noteMatch[1], sessionId: noteMatch[2], scope: "note" as CreateScope };
+  if (noteMatch) return { projectId: noteMatch[1], sessionId: noteMatch[2], noteId: noteMatch[3], scope: "note" as CreateScope };
   if (sessionMatch) return { projectId: sessionMatch[1], sessionId: sessionMatch[2], scope: "note" as CreateScope };
-  if (projectMatch) return { projectId: projectMatch[1], sessionId: null, scope: "session" as CreateScope };
-  return { projectId: null, sessionId: null, scope: "project" as CreateScope };
+  if (projectMatch) return { projectId: projectMatch[1], sessionId: null, noteId: null, scope: "session" as CreateScope };
+  return { projectId: null, sessionId: null, noteId: null, scope: "project" as CreateScope };
 }
 
 function parentPath(pathname: string) {
@@ -36,22 +44,16 @@ export function GlobalNavControls() {
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pinnaMenuOpen, setPinnaMenuOpen] = useState(false);
+  const [pinnaLoading, setPinnaLoading] = useState(false);
+  const [pinnaTemplates, setPinnaTemplates] = useState<PinnaTemplate[]>([]);
   const [mounted, setMounted] = useState(false);
 
-  const { projectId, sessionId, scope } = useMemo(() => parsePath(pathname), [pathname]);
+  const { projectId, sessionId, noteId, scope } = useMemo(() => parsePath(pathname), [pathname]);
   const backHref = useMemo(() => parentPath(pathname), [pathname]);
   const isNoteDetail = useMemo(
     () => /^\/notes\/[^/]+\/sessions\/[^/]+\/notes\/[^/]+$/.test(pathname),
     [pathname],
   );
-  const pinnaQuestions = [
-    "Why does this claim matter?",
-    "How would this work in practice?",
-    "Is this actually true?",
-    "What is the strongest counterpoint?",
-    "What should I do with this insight?",
-  ];
-
   useEffect(() => {
     setMounted(true);
     const openModal = () => setOpen(true);
@@ -77,6 +79,28 @@ export function GlobalNavControls() {
       document.body.classList.remove("modal-open");
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!isNoteDetail) return;
+    let canceled = false;
+
+    async function loadPinnas() {
+      try {
+        const response = await fetch("/api/pinna-templates", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (!payload?.ok || canceled) return;
+        setPinnaTemplates(payload.pinnaTemplates || []);
+      } catch {
+        // Keep UI resilient if templates endpoint is unavailable.
+      }
+    }
+
+    loadPinnas();
+    return () => {
+      canceled = true;
+    };
+  }, [isNoteDetail]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -134,21 +158,56 @@ export function GlobalNavControls() {
             </button>
             {pinnaMenuOpen ? (
               <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-[320px] border border-[var(--border)] bg-[var(--surface)] p-2">
-                {pinnaQuestions.map((question) => (
+                {pinnaTemplates.map((template) => (
                   <button
-                    key={question}
+                    key={template.id}
                     type="button"
                     className="block w-full border border-transparent px-3 py-2 text-left text-sm transition-colors hover:border-[var(--border)] hover:bg-[var(--surface-soft)]"
-                    onClick={() => {
-                      window.dispatchEvent(
-                        new CustomEvent("add-pinna", { detail: { question } }),
-                      );
+                    onClick={async () => {
+                      if (!noteId || pinnaLoading) return;
+                      setPinnaLoading(true);
+                      try {
+                        const response = await fetch(`/api/notes/${noteId}/threads`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            pinnaTemplateKey: template.key,
+                            title: template.defaultTitle || template.name,
+                          }),
+                        });
+                        const payload = await response.json();
+                        if (!response.ok || !payload?.ok || !payload?.thread) return;
+                        window.dispatchEvent(
+                          new CustomEvent("add-pinna", {
+                            detail: {
+                              thread: {
+                                id: payload.thread.id,
+                                threadType: payload.thread.threadType,
+                                title: payload.thread.title,
+                                messages: [],
+                              },
+                            },
+                          }),
+                        );
+                      } finally {
+                        setPinnaLoading(false);
+                      }
                       setPinnaMenuOpen(false);
                     }}
                   >
-                    {question}
+                    <span className="block font-medium text-[var(--foreground)]">
+                      {template.defaultTitle || template.name}
+                    </span>
+                    {template.description ? (
+                      <span className="mt-1 block text-xs text-[var(--muted-foreground)]">
+                        {template.description}
+                      </span>
+                    ) : null}
                   </button>
                 ))}
+                {pinnaTemplates.length === 0 ? (
+                  <p className="px-3 py-2 text-xs text-[var(--muted-foreground)]">No pinna templates found.</p>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -158,6 +217,13 @@ export function GlobalNavControls() {
           New
         </button>
       </div>
+
+      {mounted ? (
+        <LoadingOverlay
+          active={submitting || pinnaLoading}
+          label={pinnaLoading ? "Creating pinna..." : "Saving..."}
+        />
+      ) : null}
 
       {mounted && open
         ? createPortal(

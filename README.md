@@ -230,6 +230,24 @@ Uploads stay on local disk and are never stored as bytes in Postgres.
 
 Only paths and metadata are persisted in the database.
 
+### Pinna Templates and Tools
+
+- `pinna_templates` stores predefined note-level Pinna agent definitions and system prompts.
+- `tools` stores tool metadata only (schema, scope, handler name). It does not execute code.
+- Backend code owns actual tool implementations in the tool handler map.
+- `agent_tool_permissions` controls which agent can invoke which tools.
+- `tool_calls` logs requested and completed tool executions per thread/message.
+- Web Agent Pinna is predefined, but web search tools return a clear placeholder until a provider is configured.
+
+### Scoped Isolation and Tool Boundaries
+
+- Note-level Pinna chats are isolated: only current note + linked source/capture + this thread summary + this thread messages.
+- Session/project summaries and sibling notes/threads are not included in note-level chat context.
+- Tool scope is enforced at runtime:
+  - `pinna` agents: `note` or `global` tools only
+  - `session` agents: `session` or `global` tools only
+  - `project` agents: `project` or `global` tools only
+
 ### Manual Verification (curl)
 
 1. Create a project
@@ -259,22 +277,54 @@ curl -X POST http://localhost:3000/api/projects/<projectId>/sessions/<sessionId>
 5. Create thread
 
 ```bash
-curl -X POST http://localhost:3000/api/notes/<noteId>/threads -H 'content-type: application/json' -d '{"threadType":"critique","title":"Is this claim justified?"}'
+curl -X POST http://localhost:3000/api/notes/<noteId>/threads -H 'content-type: application/json' -d '{"pinnaTemplateKey":"claim"}'
 ```
 
-6. Send message
+6. Create Web Agent thread
+
+```bash
+curl -X POST http://localhost:3000/api/notes/<noteId>/threads -H 'content-type: application/json' -d '{"pinnaTemplateKey":"web_agent","customInstructions":"Prioritize recent peer-reviewed links."}'
+```
+
+7. List Pinna templates
+
+```bash
+curl http://localhost:3000/api/pinna-templates
+```
+
+8. List tools allowed for Web Agent Pinna
+
+```bash
+curl http://localhost:3000/api/pinna-templates/web_agent/tools
+```
+
+9. Send message
 
 ```bash
 curl -X POST http://localhost:3000/api/threads/<threadId>/messages -H 'content-type: application/json' -d '{"userMessage":"What evidence supports this?"}'
 ```
 
-7. Confirm thread-memory job side effects
+10. Trigger tool call (MVP directive format)
+
+```bash
+curl -X POST http://localhost:3000/api/threads/<threadId>/messages -H 'content-type: application/json' -d '{"userMessage":"[tool:find_related_papers] {\"query\":\"graph neural memory notes\"}"}'
+```
+
+11. Confirm `tool_calls` rows are created/updated
+
+- New row appears with `status=pending`, then `completed` / `failed` / `denied`.
+
+12. Confirm thread-memory job side effects
 
 - `chat_threads.summary` updates
 - a `knowledge_events` row with `event_type=thread_summary_updated`
 
-8. Confirm upward propagation
+13. Confirm upward propagation
 
 - note summary updates after thread refresh
 - session summary updates after note refresh
 - project summary updates after session refresh
+
+14. Confirm note-level context isolation
+
+- Verify assistant responses do not contain session/project summaries unless explicitly copied into the current note/thread.

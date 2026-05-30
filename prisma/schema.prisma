@@ -135,9 +135,12 @@ model ChatThread {
   projectId       String           @map("project_id") @db.Uuid
   sessionId       String           @map("session_id") @db.Uuid
   noteId          String           @map("note_id") @db.Uuid
+  pinnaTemplateId String?          @map("pinna_template_id") @db.Uuid
+  customInstructions String?       @map("custom_instructions") @db.Text
   project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   session         Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   note            Note             @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  pinnaTemplate   PinnaTemplate?   @relation(fields: [pinnaTemplateId], references: [id], onDelete: SetNull)
   threadType      String           @map("thread_type")
   title           String?
   summary         String?          @db.Text
@@ -146,6 +149,7 @@ model ChatThread {
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime         @default(now()) @map("updated_at") @db.Timestamptz(6)
   messages        ChatMessage[]
+  toolCalls       ToolCall[]
   knowledgeEvents KnowledgeEvent[]
   knowledgeNodes  KnowledgeNode[]
 
@@ -161,9 +165,78 @@ model ChatMessage {
   role      String
   content   String   @db.Text
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  toolCalls ToolCall[]
 
   @@index([threadId, createdAt])
   @@map("chat_messages")
+}
+
+model PinnaTemplate {
+  id            String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  key           String       @unique
+  name          String
+  description   String?      @db.Text
+  defaultTitle  String?      @map("default_title")
+  systemPrompt  String       @map("system_prompt") @db.Text
+  sortOrder     Int          @default(0) @map("sort_order")
+  isActive      Boolean      @default(true) @map("is_active")
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime     @default(now()) @map("updated_at") @db.Timestamptz(6)
+  chatThreads   ChatThread[]
+
+  @@index([key])
+  @@map("pinna_templates")
+}
+
+model Tool {
+  id              String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  key             String                @unique
+  name            String
+  description     String?               @db.Text
+  scope           String
+  schema          Json
+  handlerName     String                @map("handler_name")
+  isActive        Boolean               @default(true) @map("is_active")
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
+  permissions     AgentToolPermission[]
+
+  @@index([key])
+  @@index([scope])
+  @@map("tools")
+}
+
+model AgentToolPermission {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  agentType  String   @map("agent_type")
+  agentKey   String   @map("agent_key")
+  toolId     String   @map("tool_id") @db.Uuid
+  isEnabled  Boolean  @default(true) @map("is_enabled")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  tool       Tool     @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@unique([agentType, agentKey, toolId])
+  @@index([agentType, agentKey])
+  @@map("agent_tool_permissions")
+}
+
+model ToolCall {
+  id          String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  threadId    String     @map("thread_id") @db.Uuid
+  messageId   String?    @map("message_id") @db.Uuid
+  toolKey     String     @map("tool_key")
+  input       Json       @default("{}")
+  output      Json?
+  status      String     @default("pending")
+  error       String?    @db.Text
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt DateTime?  @map("completed_at") @db.Timestamptz(6)
+  thread      ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  message     ChatMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([threadId])
+  @@index([toolKey])
+  @@map("tool_calls")
 }
 
 model KnowledgeEvent {

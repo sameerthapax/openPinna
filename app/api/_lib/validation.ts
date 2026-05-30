@@ -40,8 +40,12 @@ export const createNoteSchema = z.object({
 });
 
 export const createThreadSchema = z.object({
-  threadType: z.string().trim().min(1),
+  pinnaTemplateKey: z.string().trim().min(1).optional(),
+  threadType: z.string().trim().min(1).optional(),
   title: z.string().trim().optional().nullable(),
+  customInstructions: z.string().trim().optional().nullable(),
+}).refine((value) => Boolean(value.pinnaTemplateKey || value.threadType), {
+  message: "pinnaTemplateKey is required.",
 });
 
 export const sendMessageSchema = z.object({

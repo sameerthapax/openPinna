@@ -20,13 +20,19 @@ export async function POST(request: Request, context: Ctx) {
   const note = await db.note.findUnique({ where: { id: noteId } });
   if (!note) return jsonError("Note not found.", 404);
 
-  const thread = await createThread({
-    projectId: note.projectId,
-    sessionId: note.sessionId,
-    noteId,
-    threadType: parsed.data.threadType,
-    title: parsed.data.title,
-  });
+  try {
+    const thread = await createThread({
+      projectId: note.projectId,
+      sessionId: note.sessionId,
+      noteId,
+      pinnaTemplateKey: parsed.data.pinnaTemplateKey || parsed.data.threadType || "claim",
+      title: parsed.data.title,
+      customInstructions: parsed.data.customInstructions,
+    });
 
-  return jsonOk({ thread }, 201);
+    return jsonOk({ thread }, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to create thread.";
+    return jsonError(message, 400);
+  }
 }
