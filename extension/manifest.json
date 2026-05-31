@@ -13,7 +13,11 @@
   "host_permissions": ["<all_urls>"],
   "web_accessible_resources": [
     {
-      "resources": ["icons/openPinnaLogo.png", "icons/openPinnaLogo.svg"],
+      "resources": [
+        "icons/openPinnaLogo.png",
+        "icons/openPinnaLogo.svg",
+        "soundfx/micOnSoundFX.mp3"
+      ],
       "matches": ["<all_urls>"]
     }
   ],

@@ -585,8 +585,6 @@ export function OverlayApp() {
     [],
   );
   function playVoiceActivationCue() {
-    setExpanded(true);
-    setShowSetupPrompt(false);
     setVoiceCueActive(true);
     setTimeout(() => {
       setVoiceCueActive(false);
