@@ -16,7 +16,7 @@ import {
   verifyBackend,
   verifyOpenAi,
 } from "../lib/backend";
-import type { OpenPinnaSettings } from "../lib/types";
+import type { OpenPinnaSettings, OpenPinnaShortcutPreset } from "../lib/types";
 import { parseTags } from "../lib/utils";
 
 export function OptionsApp() {
@@ -81,6 +81,19 @@ export function OptionsApp() {
 
   function hasLikelyOpenAiKey(value: string) {
     return value.trim().startsWith("sk-") && value.trim().length > 20;
+  }
+
+  function parseCaptureShortcut(value: string): OpenPinnaShortcutPreset {
+    if (
+      value === "option-or-alt+p" ||
+      value === "mod+shift+p" ||
+      value === "mod+shift+n" ||
+      value === "manual"
+    ) {
+      return value;
+    }
+
+    return "option-or-alt+p";
   }
 
   async function handleSave() {
@@ -177,6 +190,37 @@ export function OptionsApp() {
     }
   }
 
+  async function handleVoiceAgentToggle(nextValue: boolean) {
+    if (!settings) {
+      return;
+    }
+
+    if (!nextValue) {
+      updateSetting("voiceAgentEnabled", false);
+      return;
+    }
+
+    if (!settings.openAiVerified) {
+      setStatus("Verify OpenAI API key before enabling voice agent.");
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setStatus("Microphone permission is not available in this browser context.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      updateSetting("voiceAgentEnabled", true);
+      setStatus("Voice agent enabled. Double press M to activate voice agent.");
+    } catch {
+      updateSetting("voiceAgentEnabled", false);
+      setStatus("Microphone permission was denied. Voice agent remains off.");
+    }
+  }
+
   return (
     <main
       data-theme={settings.darkMode ? "dark" : "light"}
@@ -229,6 +273,18 @@ export function OptionsApp() {
               onChange={(value) => {
                 updateSetting("darkMode", value);
               }}
+              theme={settings.darkMode ? "dark" : "light"}
+            />
+            <Toggle
+              label="Voice agent"
+              description={
+                settings.openAiVerified
+                  ? "Double press M to activate voice agent. Enabling asks for microphone permission."
+                  : "Verify OpenAI first to unlock voice agent. Double press M to activate voice agent."
+              }
+              checked={settings.voiceAgentEnabled}
+              disabled={!settings.openAiVerified}
+              onChange={handleVoiceAgentToggle}
               theme={settings.darkMode ? "dark" : "light"}
             />
           </section>
@@ -375,7 +431,7 @@ export function OptionsApp() {
                 className="h-10 rounded-[10px] border border-[var(--op-border)] bg-[var(--op-soft)] px-3 text-sm text-[var(--op-text)] outline-none transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] focus:border-[var(--op-border-strong)] focus:bg-[var(--op-soft-strong)]"
                 value={settings.captureShortcut}
                 onChange={(event) =>
-                  updateSetting("captureShortcut", event.target.value)
+                  updateSetting("captureShortcut", parseCaptureShortcut(event.target.value))
                 }
               >
                 <option value="option-or-alt+p">Default (Option+P on macOS, Alt+P on Windows/Linux)</option>

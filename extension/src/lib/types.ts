@@ -6,6 +6,7 @@ export type OpenPinnaShortcutPreset =
 
 export type OpenPinnaSettings = {
   overlayEnabled: boolean;
+  voiceAgentEnabled: boolean;
   autoDetectSelection: boolean;
   darkMode: boolean;
   defaultTags: string[];

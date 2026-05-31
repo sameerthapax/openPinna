@@ -3,12 +3,14 @@ export function Toggle({
   description,
   checked,
   onChange,
+  disabled = false,
   theme = "dark",
 }: {
   label: string;
   description?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  disabled?: boolean;
   theme?: "dark" | "light";
 }) {
   const activeClasses =
@@ -31,9 +33,17 @@ export function Toggle({
       <button
         type="button"
         aria-pressed={checked}
-        onClick={() => onChange(!checked)}
+        disabled={disabled}
+        onClick={() => {
+          if (disabled) {
+            return;
+          }
+          onChange(!checked);
+        }}
         className={`relative h-8 w-14 shrink-0 overflow-hidden rounded-full border transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.98] ${
           checked ? activeClasses : "border-[var(--op-border)] bg-[var(--op-soft)]"
+        } ${
+          disabled ? "cursor-not-allowed opacity-45" : "cursor-pointer"
         }`}
       >
         <span

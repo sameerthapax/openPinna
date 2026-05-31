@@ -93,6 +93,29 @@ const overlayCss = `
     max-height: calc(100dvh - 48px);
     pointer-events: auto;
   }
+  .op-bubble-shell {
+    position: relative;
+  }
+  .op-voice-ring {
+    position: absolute;
+    inset: -6px;
+    border-radius: 999px;
+    border: 1px solid rgba(245, 119, 119, 0.68);
+    box-shadow: 0 0 0 0 rgba(245, 119, 119, 0.44);
+    opacity: 0;
+    transform: scale(0.95);
+    transition: opacity 180ms cubic-bezier(0.16,1,0.3,1);
+    pointer-events: none;
+  }
+  .op-voice-ring[data-active="true"] {
+    opacity: 1;
+    animation: op-voice-ring-pulse 920ms cubic-bezier(0.16,1,0.3,1);
+  }
+  @keyframes op-voice-ring-pulse {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 119, 119, 0.45); }
+    65% { transform: scale(1.08); box-shadow: 0 0 0 9px rgba(245, 119, 119, 0); }
+    100% { transform: scale(1.02); box-shadow: 0 0 0 0 rgba(245, 119, 119, 0); }
+  }
   .op-bubble {
     width: 58px;
     height: 58px;
@@ -435,6 +458,7 @@ export function OverlayApp() {
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [status, setStatus] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [voiceCueActive, setVoiceCueActive] = useState(false);
   const sessionDateIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   useEffect(() => {
@@ -534,6 +558,17 @@ export function OverlayApp() {
     };
   }, [expanded, settings?.backendVerified, settings?.openAiVerified]);
 
+  useEffect(() => {
+    const onVoiceAgentActivate = () => {
+      playVoiceActivationCue();
+    };
+
+    window.addEventListener("openpinna:voice-agent-activate", onVoiceAgentActivate);
+    return () => {
+      window.removeEventListener("openpinna:voice-agent-activate", onVoiceAgentActivate);
+    };
+  }, []);
+
   const pageUrl = useMemo(() => window.location.href, []);
   const pageTitle = useMemo(() => document.title || "Untitled page", []);
   const themeMode = settings?.darkMode ? "dark" : "light";
@@ -549,6 +584,14 @@ export function OverlayApp() {
     () => chrome.runtime.getURL("icons/openPinnaLogo.svg"),
     [],
   );
+  function playVoiceActivationCue() {
+    setExpanded(true);
+    setShowSetupPrompt(false);
+    setVoiceCueActive(true);
+    setTimeout(() => {
+      setVoiceCueActive(false);
+    }, 1200);
+  }
 
   function closePanel() {
     setExpanded(false);
@@ -889,31 +932,34 @@ export function OverlayApp() {
               </section>
             ) : null}
 
-            <button
-              className="op-bubble"
-              type="button"
-              title={expanded ? "Close openPinna capture" : "Open openPinna capture"}
-              onClick={() => {
-                if (expanded) {
-                  setExpanded(false);
-                } else {
-                  setExpanded(true);
-                }
-                setShowSetupPrompt(false);
-              }}
-            >
-              {!bubbleLogoUnavailable ? (
-                <img
-                  src={logoUrl}
-                  alt=""
-                  aria-hidden="true"
-                  className="op-mark-image"
-                  onError={() => setBubbleLogoUnavailable(true)}
-                />
-              ) : (
-                <span className="op-mark">op</span>
-              )}
-            </button>
+            <div className="op-bubble-shell">
+              <span className="op-voice-ring" data-active={voiceCueActive ? "true" : "false"} />
+              <button
+                className="op-bubble"
+                type="button"
+                title={expanded ? "Close openPinna capture" : "Open openPinna capture"}
+                onClick={() => {
+                  if (expanded) {
+                    setExpanded(false);
+                  } else {
+                    setExpanded(true);
+                  }
+                  setShowSetupPrompt(false);
+                }}
+              >
+                {!bubbleLogoUnavailable ? (
+                  <img
+                    src={logoUrl}
+                    alt=""
+                    aria-hidden="true"
+                    className="op-mark-image"
+                    onError={() => setBubbleLogoUnavailable(true)}
+                  />
+                ) : (
+                  <span className="op-mark">op</span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -84,16 +84,22 @@ if (canInject && !existingRoot) {
   );
 
   let shortcut: OpenPinnaSettings["captureShortcut"] = "option-or-alt+p";
+  let latestSettings: OpenPinnaSettings | null = null;
+  let lastVoiceShortcutAt = 0;
+  const micOnSoundUrl = chrome.runtime.getURL("soundfx/micOnSoundFX.mp3");
   getSettings()
     .then((settings) => {
       shortcut = settings.captureShortcut;
+      latestSettings = settings;
     })
     .catch(() => {
       shortcut = "option-or-alt+p";
+      latestSettings = null;
     });
 
   const unsubscribe = subscribeToSettings((settings) => {
     shortcut = settings.captureShortcut;
+    latestSettings = settings;
   });
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -102,6 +108,44 @@ if (canInject && !existingRoot) {
     }
 
     if (!matchesShortcut(event, shortcut)) {
+      const isPlainMKey =
+        event.key.toLowerCase() === "m" &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey;
+
+      if (!isPlainMKey || !latestSettings?.voiceAgentEnabled || !latestSettings.openAiVerified) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastVoiceShortcutAt > 420) {
+        lastVoiceShortcutAt = now;
+        return;
+      }
+
+      lastVoiceShortcutAt = 0;
+      event.preventDefault();
+
+      const cueAudio = new Audio(micOnSoundUrl);
+      cueAudio.volume = 0.65;
+      void cueAudio.play().catch(() => {
+        // Ignore autoplay restrictions and continue with visual cue.
+      });
+
+      const triggerVoiceCue = () => {
+        window.dispatchEvent(new CustomEvent("openpinna:voice-agent-activate"));
+      };
+
+      if (!latestSettings.overlayEnabled) {
+        chrome.runtime.sendMessage({ type: "TOGGLE_OVERLAY" }, () => {
+          setTimeout(triggerVoiceCue, 80);
+        });
+        return;
+      }
+
+      triggerVoiceCue();
       return;
     }
 
