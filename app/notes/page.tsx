@@ -12,8 +12,12 @@ import { StarFilledIcon, StarIcon, Pencil2Icon, ChevronDownIcon, ChevronUpIcon }
 
 export const dynamic = "force-dynamic";
 
+const NOTE_CARD_HEIGHT = 92;
+const NOTE_CARD_GAP = 12;
+
 function noteBlockHeight(noteCount: number) {
-  return Math.max(52, noteCount * 48 + 8);
+  if (noteCount <= 0) return 52;
+  return noteCount * NOTE_CARD_HEIGHT + (noteCount - 1) * NOTE_CARD_GAP;
 }
 
 export default async function NotesPage() {
@@ -21,7 +25,7 @@ export default async function NotesPage() {
     orderBy: [{ isPinned: "desc" }, { createdAt: "desc" }],
     include: {
       sessions: {
-        orderBy: { sessionKey: "asc" },
+        orderBy: { sessionKey: "desc" },
         include: {
           notes: {
             orderBy: { createdAt: "desc" },
@@ -142,9 +146,9 @@ export default async function NotesPage() {
                           data-node="note-card"
                           data-note-id={note.id}
                           href={`/notes/${project.id}/sessions/${session.id}/notes/${note.id}`}
-                          className="block border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:translate-x-[2px] hover:bg-[var(--surface)]"
+                          className="block h-[92px] overflow-hidden border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:translate-x-[2px] hover:bg-[var(--surface)]"
                         >
-                          <p className="text-sm">{note.source?.title || "No source title"}</p>
+                          <p className="truncate text-sm">{note.source?.title || "No source title"}</p>
                           <p className="mt-1 line-clamp-2 text-xs text-[var(--muted-foreground)]">{note.noteSummary || note.noteText}</p>
                         </Link>
                       )) : <div className="border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--muted-foreground)]">No notes</div>}

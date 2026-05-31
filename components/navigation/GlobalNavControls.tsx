@@ -47,6 +47,8 @@ export function GlobalNavControls() {
   const [pinnaLoading, setPinnaLoading] = useState(false);
   const [pinnaTemplates, setPinnaTemplates] = useState<PinnaTemplate[]>([]);
   const [mounted, setMounted] = useState(false);
+  const [sessionExistsMessage, setSessionExistsMessage] = useState("");
+  const [todaySessionHref, setTodaySessionHref] = useState<string | null>(null);
 
   const { projectId, sessionId, noteId, scope } = useMemo(() => parsePath(pathname), [pathname]);
   const backHref = useMemo(() => parentPath(pathname), [pathname]);
@@ -66,6 +68,8 @@ export function GlobalNavControls() {
       document.documentElement.style.overflow = "";
       document.body.style.overflow = "";
       document.body.classList.remove("modal-open");
+      setSessionExistsMessage("");
+      setTodaySessionHref(null);
       return;
     }
 
@@ -115,11 +119,21 @@ export function GlobalNavControls() {
           body: JSON.stringify({ title: form.get("title"), description: form.get("description") }),
         });
       } else if (scope === "session" && projectId) {
-        await fetch(`/api/projects/${projectId}/sessions`, {
+        const response = await fetch(`/api/projects/${projectId}/sessions/today`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: form.get("title"), sessionDate: form.get("sessionDate"), summary: form.get("summary") }),
         });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.ok || !payload?.session?.id) {
+          return;
+        }
+
+        const href = `/notes/${projectId}/sessions/${payload.session.id}`;
+        if (payload.created === false) {
+          setSessionExistsMessage("Session for today already exists.");
+          setTodaySessionHref(href);
+          return;
+        }
       } else if (scope === "note" && sessionId) {
         await fetch(`/api/sessions/${sessionId}/notes`, {
           method: "POST",
@@ -241,9 +255,39 @@ export function GlobalNavControls() {
                     <button type="button" onClick={() => setOpen(false)} className="rounded-[6px] p-2 transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-[var(--muted)] focus-visible:focus-ring"><Cross2Icon className="h-4 w-4" /></button>
                   </div>
                   <form onSubmit={submit} className="mt-4 space-y-3">
-                    <input name="title" required placeholder={scope === "note" ? "Note title" : scope === "session" ? "Session title" : "Project title"} className="w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" />
+                    {scope !== "session" ? (
+                      <input
+                        name="title"
+                        required
+                        placeholder={scope === "note" ? "Note title" : "Project title"}
+                        className="w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring"
+                      />
+                    ) : null}
                     {scope === "project" ? <textarea name="description" placeholder="Brief scope" className="min-h-24 w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /> : null}
-                    {scope === "session" ? <><input name="sessionDate" type="date" required className="w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /><textarea name="summary" placeholder="Session summary" className="min-h-20 w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /></> : null}
+                    {scope === "session" ? (
+                      <div className="space-y-3">
+                        <p className="text-sm text-[var(--muted-foreground)]">
+                          A session for today will be created automatically.
+                        </p>
+                        {sessionExistsMessage ? (
+                          <div className="space-y-2">
+                            <p className="text-sm text-[var(--foreground)]">{sessionExistsMessage}</p>
+                            {todaySessionHref ? (
+                              <button
+                                type="button"
+                                className="rounded-[6px] border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-[var(--surface)]"
+                                onClick={() => {
+                                  setOpen(false);
+                                  router.push(todaySessionHref);
+                                }}
+                              >
+                                Open today&apos;s session
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {scope === "note" ? <><textarea name="body" required placeholder="Captured knowledge" className="min-h-24 w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /><input name="sourceUrl" placeholder="Source URL" className="w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /><input name="sourceTitle" placeholder="Source title" className="w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /><textarea name="selectedText" placeholder="Selected text" className="min-h-20 w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /><input name="tags" placeholder="tag1, tag2" className="w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /></> : null}
                     <button disabled={submitting} type="submit" className="btn-primary mt-2 rounded-[6px] px-3 py-2 text-sm font-medium disabled:opacity-70">{submitting ? "Saving..." : "Save"}</button>
                   </form>

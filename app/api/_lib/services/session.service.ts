@@ -7,15 +7,19 @@ export async function getOrCreateTodaySession(projectId: string) {
   const existing = await db.session.findUnique({
     where: { projectId_sessionKey: { projectId, sessionKey: localDate } },
   });
-  if (existing) return existing;
+  if (existing) {
+    return { session: existing, created: false as const };
+  }
 
-  return db.session.create({
+  const session = await db.session.create({
     data: {
       projectId,
       sessionKey: localDate,
       title: `Session ${localDate.toISOString().slice(0, 10)}`,
     },
   });
+
+  return { session, created: true as const };
 }
 
 export async function getSession(sessionId: string) {

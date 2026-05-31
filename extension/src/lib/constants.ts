@@ -13,7 +13,7 @@ export const DEFAULT_SETTINGS: OpenPinnaSettings = {
   backendVerified: false,
   openAiApiKey: "",
   openAiVerified: false,
-  captureShortcut: "mod+shift+p",
+  captureShortcut: "option-or-alt+p",
 };
 
 export const OVERLAY_ROOT_ID = "openpinna-extension-root";

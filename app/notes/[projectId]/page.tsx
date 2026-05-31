@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { ProjectCanvasD3 } from "@/components/notes/ProjectCanvasD3";
 import { OpenCreateButton } from "@/components/navigation/OpenCreateButton";
 
-const NOTE_CARD_HEIGHT = 84;
+const NOTE_CARD_HEIGHT = 92;
 const NOTE_GAP = 10;
 const ROW_GAP = 42;
 const SESSION_CARD_HEIGHT = 98;
@@ -21,7 +21,7 @@ export default async function ProjectCanvasPage({ params }: { params: Promise<{ 
     where: { id: projectId },
     include: {
       sessions: {
-        orderBy: { sessionKey: "asc" },
+        orderBy: { sessionKey: "desc" },
         include: {
           notes: {
             orderBy: { createdAt: "desc" },
@@ -81,9 +81,9 @@ export default async function ProjectCanvasPage({ params }: { params: Promise<{ 
                         data-node="note-card"
                         data-note-id={note.id}
                         href={`/notes/${project.id}/sessions/${session.id}/notes/${note.id}`}
-                        className="block min-h-[84px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:translate-x-[2px] hover:bg-[var(--surface-soft)]"
+                        className="block h-[92px] overflow-hidden border border-[var(--border)] bg-[var(--surface)] px-3 py-2 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:translate-x-[2px] hover:bg-[var(--surface-soft)]"
                       >
-                        <p className="text-sm font-medium">{note.source?.title || "No source title"}</p>
+                        <p className="truncate text-sm font-medium">{note.source?.title || "No source title"}</p>
                         <p className="mt-1 line-clamp-2 text-xs text-[var(--muted-foreground)]">{note.noteSummary || note.noteText}</p>
                       </Link>
                     ))

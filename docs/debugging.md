@@ -149,3 +149,104 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 
 ## Final Result
 - Loading feedback now appears immediately on click/back and blurs the full screen while navigation is in flight, including under throttled network conditions.
+
+## New Issue
+- Extension capture saved source URL/title only and did not send the full source metadata JSON to backend source storage.
+- Extension note payload mapped `rawThought` to `noteText` and selected text to `userCommentary`; expected mapping was the inverse.
+
+## Suspected Cause
+- Background worker only posted directly to notes endpoint and never called source URL ingestion endpoint.
+- `extractSourceMetadata()` existed but was not wired into the capture draft sent from overlay to background.
+- Note payload fields were assigned in legacy order.
+
+## Files Touched
+- `extension/src/lib/types.ts`
+- `extension/src/content/OverlayApp.tsx`
+- `extension/src/background/service-worker.ts`
+
+## Fix Attempted
+- Added `sourceMetadata` to the capture draft type.
+- Wired `extractSourceMetadata(pageTitle, pageUrl)` into overlay save payload.
+- Updated background save flow to:
+  1. create/get today session,
+  2. create source via `POST /api/projects/:projectId/sessions/:sessionId/sources/url` using full metadata JSON,
+  3. create note with returned `sourceId`.
+- Swapped note payload semantics:
+  - `noteText` now uses selected text (fallback to raw thought when selection is empty to satisfy validation).
+  - `userCommentary` now uses raw thought.
+- Extended shared JSON response unwrap helper to support `{ source }` and `{ sources }` envelopes.
+
+## Final Result
+- Extension build passes.
+- Source metadata now reaches backend source creation route as JSON, including extracted fields (authors/title/abstract/url/etc) and full `metadata` payload.
+- Note field mapping now matches requested behavior (`noteText` and `userCommentary` corrected).
+
+## New Issue
+- On the project canvas page, session and note cards could visually overlap.
+- Sessions were listed oldest-first, but expected behavior is newest session at the top.
+
+## Suspected Cause
+- Row height math used a fixed note-card height that did not always match rendered card height, allowing overflow into subsequent rows.
+- Session query ordering used ascending `sessionKey`.
+
+## Files Touched
+- `app/notes/[projectId]/page.tsx`
+
+## Fix Attempted
+- Changed session ordering to `sessionKey: "desc"` so newest sessions render first.
+- Made note card layout deterministic with fixed height (`h-[92px]`) and overflow hidden.
+- Updated layout constant (`NOTE_CARD_HEIGHT`) to match rendered fixed height.
+- Added title truncation to prevent multi-line growth from expanding card height.
+
+## Final Result
+- Session and note cards now render in stable vertical columns without overlap.
+- Newest session appears at the top of the project canvas.
+- `npm run typecheck` passes.
+
+## New Issue
+- On `/notes`, session branches and note cards overlapped vertically in the hierarchy map.
+- Session ordering showed older sessions first instead of newest-first.
+
+## Suspected Cause
+- Row block sizing assumed a much smaller per-note height than the rendered note cards, causing lane collisions.
+- Sessions were ordered by ascending `sessionKey`.
+
+## Files Touched
+- `app/notes/page.tsx`
+
+## Fix Attempted
+- Switched sessions query ordering to `sessionKey: "desc"`.
+- Introduced deterministic note layout constants (`NOTE_CARD_HEIGHT = 92`, `NOTE_CARD_GAP = 12`).
+- Updated `noteBlockHeight()` to match actual rendered card stack height.
+- Set note cards to fixed height with overflow hidden and truncated titles to prevent dynamic growth.
+
+## Final Result
+- `/notes` hierarchy now renders session/note columns without overlap.
+- Newest session appears at the top.
+- `npm run typecheck` passes.
+
+## New Issue
+- In the create-session modal, clicking Save gave no specific feedback when today's session already existed.
+- Users needed an explicit redirect action to open today's existing session.
+
+## Suspected Cause
+- `POST /api/projects/:projectId/sessions/today` always responded with a `session` object and did not indicate whether it was newly created or already existing.
+- Modal submit flow always closed on success and had no branch for "already exists" UX.
+
+## Files Touched
+- `app/api/_lib/services/session.service.ts`
+- `app/api/projects/[projectId]/sessions/today/route.ts`
+- `components/navigation/GlobalNavControls.tsx`
+
+## Fix Attempted
+- Updated `getOrCreateTodaySession` to return `{ session, created }`.
+- Updated sessions/today route to return `201` when created and `200` when existing, with `{ session, created }` payload.
+- Updated create-session modal submit flow:
+  - if `created === false`, keep modal open,
+  - show message "Session for today already exists.",
+  - show button "Open today's session" that routes to `/notes/:projectId/sessions/:sessionId`.
+
+## Final Result
+- Create-session modal now provides explicit already-exists feedback and direct navigation to today's session.
+- Newly created session flow still works and closes modal as before.
+- `npm run typecheck` passes.

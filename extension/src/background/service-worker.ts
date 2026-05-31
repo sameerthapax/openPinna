@@ -15,9 +15,11 @@ type BackendNoteRequest = {
   selectedText: string;
   body: string;
   tags: string[];
+  sourceMetadata: Record<string, unknown>;
 };
 
 type SessionResponse = { id: string };
+type SourceResponse = { id: string };
 
 const originalFetch = globalThis.fetch.bind(globalThis);
 
@@ -103,6 +105,8 @@ async function requestJson<T>(
         message?: string;
         note?: T;
         notes?: T;
+        source?: T;
+        sources?: T;
         project?: T;
         projects?: T;
         session?: T;
@@ -116,6 +120,8 @@ async function requestJson<T>(
 
   if ("note" in json && json.note) return json.note;
   if ("notes" in json && json.notes) return json.notes;
+  if ("source" in json && json.source) return json.source;
+  if ("sources" in json && json.sources) return json.sources;
   if ("project" in json && json.project) return json.project;
   if ("projects" in json && json.projects) return json.projects;
   if ("session" in json && json.session) return json.session;
@@ -145,14 +151,32 @@ async function saveNoteToBackend(note: BackendNoteRequest) {
     { method: "POST" },
   );
 
+  const source = await requestJson<SourceResponse>(
+    baseUrl,
+    `/api/projects/${note.projectId}/sessions/${session.id}/sources/url`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ...note.sourceMetadata,
+        title: (note.sourceMetadata.title as string | null) || note.sourceTitle || null,
+        url: (note.sourceMetadata.url as string | null) || note.sourceUrl || null,
+        metadata: note.sourceMetadata,
+      }),
+    },
+  );
+
+  const noteText = (note.selectedText || "").trim() || (note.body || "").trim();
+  const userCommentary = (note.body || "").trim() || null;
+
   return requestJson<OpenPinnaBackendNote>(
     baseUrl,
     `/api/projects/${note.projectId}/sessions/${session.id}/notes`,
     {
     method: "POST",
     body: JSON.stringify({
-      noteText: note.body,
-      userCommentary: note.selectedText || null,
+      sourceId: source.id,
+      noteText,
+      userCommentary,
     }),
   });
 }
@@ -260,6 +284,27 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
     return false;
   }
 
+  if (message.type === "TOGGLE_OVERLAY") {
+    getSettings()
+      .then((settings) => updateSettings({ overlayEnabled: !settings.overlayEnabled }))
+      .then(() =>
+        respond(sendResponse, {
+          ok: true,
+          handled,
+          data: null,
+        }),
+      )
+      .catch((error) =>
+        respond(sendResponse, {
+          ok: false,
+          handled,
+          code: "BACKEND_REQUEST_FAILED",
+          message: error instanceof Error ? error.message : "Could not toggle overlay.",
+        }),
+      );
+    return true;
+  }
+
   const run = async () => {
     try {
       if (message.type === "VERIFY_BACKEND") {
@@ -283,6 +328,7 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
           selectedText: message.note.selectedText,
           body: message.note.rawThought,
           tags: message.note.tags,
+          sourceMetadata: message.note.sourceMetadata,
         });
 
         return {

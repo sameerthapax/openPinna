@@ -23,6 +23,7 @@ import {
 import type { OpenPinnaProjectSummary, OpenPinnaSettings } from "../lib/types";
 import { parseTags } from "../lib/utils";
 import { getSelectedText } from "../lib/selection";
+import { extractSourceMetadata } from "../lib/source-metadata";
 
 const overlayCss = `
   :host { all: initial; }
@@ -600,6 +601,7 @@ export function OverlayApp() {
       selectedText,
       rawThought,
       tags: parseTags(tags),
+      sourceMetadata: extractSourceMetadata(pageTitle, pageUrl),
     };
 
     setIsSaving(true);

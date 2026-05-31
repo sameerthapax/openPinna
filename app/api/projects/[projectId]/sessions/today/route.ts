@@ -5,6 +5,6 @@ type Ctx = { params: Promise<{ projectId: string }> };
 
 export async function POST(_request: Request, context: Ctx) {
   const { projectId } = await context.params;
-  const session = await getOrCreateTodaySession(projectId);
-  return jsonOk({ session }, 201);
+  const result = await getOrCreateTodaySession(projectId);
+  return jsonOk(result, result.created ? 201 : 200);
 }

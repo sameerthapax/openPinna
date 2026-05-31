@@ -378,6 +378,7 @@ export function OptionsApp() {
                   updateSetting("captureShortcut", event.target.value)
                 }
               >
+                <option value="option-or-alt+p">Default (Option+P on macOS, Alt+P on Windows/Linux)</option>
                 <option value="mod+shift+p">Command/Ctrl Shift P</option>
                 <option value="mod+shift+n">Command/Ctrl Shift N</option>
                 <option value="manual">Manual only</option>

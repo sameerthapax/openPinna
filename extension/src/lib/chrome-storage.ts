@@ -1,6 +1,16 @@
 import { DEFAULT_SETTINGS, STORAGE_KEYS } from "./constants";
 import type { OpenPinnaSettings } from "./types";
 
+function normalizeCaptureShortcut(value: unknown): OpenPinnaSettings["captureShortcut"] {
+  if (value === "alt-or-command+p") {
+    return "option-or-alt+p";
+  }
+  if (value === "option-or-alt+p" || value === "mod+shift+p" || value === "mod+shift+n" || value === "manual") {
+    return value;
+  }
+  return DEFAULT_SETTINGS.captureShortcut;
+}
+
 function normalizeSettings(
   settings?: Partial<OpenPinnaSettings> | null,
 ): OpenPinnaSettings {
@@ -8,6 +18,7 @@ function normalizeSettings(
     ...DEFAULT_SETTINGS,
     ...settings,
     defaultTags: settings?.defaultTags ?? DEFAULT_SETTINGS.defaultTags,
+    captureShortcut: normalizeCaptureShortcut(settings?.captureShortcut),
   };
 }
 

@@ -20,10 +20,10 @@
   "commands": {
     "toggle-overlay": {
       "suggested_key": {
-        "default": "Ctrl+Shift+P",
-        "mac": "Ctrl+Shift+P",
-        "windows": "Ctrl+Shift+P",
-        "linux": "Ctrl+Shift+P"
+        "default": "Alt+P",
+        "mac": "Alt+P",
+        "windows": "Alt+P",
+        "linux": "Alt+P"
       },
       "description": "Toggle the openPinna overlay"
     }

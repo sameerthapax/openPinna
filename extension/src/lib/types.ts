@@ -1,3 +1,9 @@
+export type OpenPinnaShortcutPreset =
+  | "option-or-alt+p"
+  | "mod+shift+p"
+  | "mod+shift+n"
+  | "manual";
+
 export type OpenPinnaSettings = {
   overlayEnabled: boolean;
   autoDetectSelection: boolean;
@@ -7,7 +13,7 @@ export type OpenPinnaSettings = {
   backendVerified: boolean;
   openAiApiKey: string;
   openAiVerified: boolean;
-  captureShortcut: string;
+  captureShortcut: OpenPinnaShortcutPreset;
 };
 
 export type OpenPinnaCaptureDraft = {
@@ -18,6 +24,7 @@ export type OpenPinnaCaptureDraft = {
   selectedText: string;
   rawThought: string;
   tags: string[];
+  sourceMetadata: Record<string, unknown>;
 };
 
 export type OpenPinnaProjectSummary = {
@@ -49,6 +56,7 @@ export type OpenPinnaBackgroundMessage =
   | { type: "CLEAR_CAPTURED_NOTES" }
   | { type: "DELETE_CAPTURED_NOTE"; id: string }
   | { type: "OPEN_OPTIONS" }
+  | { type: "TOGGLE_OVERLAY" }
   | { type: "NOTE_SAVED"; note: OpenPinnaBackendNote };
 
 export type OpenPinnaBackgroundErrorCode =
