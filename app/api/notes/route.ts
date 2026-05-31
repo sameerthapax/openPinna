@@ -6,11 +6,11 @@ export async function GET() {
 
   const normalized = notes.map((note) => ({
     id: note.id,
-    title: note.noteText.slice(0, 80),
+    title: (note.userCommentary || note.noteText).slice(0, 80),
     sourceUrl: "",
     sourceTitle: null,
-    selectedText: note.userCommentary,
-    rawThought: note.noteText,
+    selectedText: note.noteText,
+    rawThought: note.userCommentary || "",
     structuredSummary: note.noteSummary,
     usefulness: null,
     purpose: null,

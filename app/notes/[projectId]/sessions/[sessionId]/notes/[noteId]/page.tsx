@@ -9,15 +9,23 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
     where: { id: noteId },
     include: {
       session: { include: { project: true } },
+      source: true,
+      capture: true,
       chatThreads: {
-        include: { messages: { orderBy: { createdAt: "asc" } }, pinnaTemplate: true },
+        include: {
+          messages: { orderBy: { createdAt: "asc" } },
+          pinnaTemplate: true,
+        },
         orderBy: { createdAt: "asc" },
       },
     },
   });
 
   if (!note || note.sessionId !== sessionId || note.session.projectId !== projectId) notFound();
-  const noteTitle = note.noteText.slice(0, 72);
+  const noteTitle = note.source?.title || note.source?.url || "No source";
+  const selectedText = note.noteText || "";
+  const noteOpinion = note.userCommentary || "";
+  const knowledgeBuild = note.aiExtractedClaim || "";
   const sessionDateLabel = new Date(note.session.sessionKey).toLocaleDateString();
 
   return (
@@ -27,12 +35,14 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
           <p className="font-mono-ui text-[11px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Note research board</p>
           <h1 className="font-editorial text-5xl tracking-[-0.04em]">{note.session.project.title}</h1>
           <p className="text-xl text-[var(--muted-foreground)]">Session: {sessionDateLabel} · Note: {noteTitle}</p>
-          <p className="max-w-[72ch] text-sm leading-7 text-[var(--muted-foreground)]">{note.noteText}</p>
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-[1.6fr_1fr]">
           <NotePinnaBoard
-            centralIdea={note.noteText}
+            noteId={note.id}
+            noteTitle={noteTitle}
+            selectedText={selectedText}
+            noteOpinion={noteOpinion}
             initialThreads={note.chatThreads.map((thread) => ({
               id: thread.id,
               question: thread.title || thread.pinnaTemplate?.defaultTitle || thread.threadType,
@@ -43,28 +53,53 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
                 content: message.content,
               })),
             }))}
+            initialLayout={
+              note.pinnaLayout &&
+              typeof note.pinnaLayout === "object" &&
+              !Array.isArray(note.pinnaLayout)
+                ? (note.pinnaLayout as {
+                    zoom: number;
+                    nodes: Array<{ id: string; x: number; y: number }>;
+                  })
+                : null
+            }
           />
 
           <aside className="border border-[var(--border)] bg-[var(--surface)] p-5">
             <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Knowledge build</p>
-            <h2 className="mt-2 text-xl font-semibold tracking-[-0.02em]">Note-level synthesis (mock)</h2>
+            <h2 className="mt-2 text-xl font-semibold tracking-[-0.02em]">Note-level knowledge base</h2>
 
             <div className="mt-4 space-y-4 text-sm leading-7 text-[var(--muted-foreground)]">
               <p>
-                <span className="text-[var(--foreground)]">Base note:</span>{" "}
-                {note.noteText.slice(0, 220)}
-                {note.noteText.length > 220 ? "..." : ""}
+                <span className="text-[var(--foreground)]">SS:</span>{" "}
+                {note.capture?.id ? note.capture.id.slice(0, 12) : "No screenshot capture"}
               </p>
               <p>
-                <span className="text-[var(--foreground)]">Active pinnas:</span>{" "}
-                {note.chatThreads.length}
+                <span className="text-[var(--foreground)]">Title:</span> {noteTitle}
               </p>
               <p>
-                <span className="text-[var(--foreground)]">Mock merged summary:</span>{" "}
-                This note captures a central claim that now has multiple pinna
-                explorations. The current direction suggests validating evidence,
-                capturing one practical application path, and preserving one
-                counterpoint before promoting to session summary.
+                <span className="text-[var(--foreground)]">Selected text:</span>{" "}
+                <span className="mt-2 block max-h-40 overflow-y-auto border border-[var(--border)] bg-[var(--surface-soft)] p-3 pr-2">
+                  {selectedText || "No selected text"}
+                </span>
+              </p>
+              <p>
+                <span className="text-[var(--foreground)]">My opinion:</span>{" "}
+                <span className="mt-2 block max-h-40 overflow-y-auto border border-[var(--border)] bg-[var(--surface-soft)] p-3 pr-2">
+                  {noteOpinion || "No opinion captured"}
+                </span>
+              </p>
+              <p>
+                <span className="text-[var(--foreground)]">Summary:</span>{" "}
+                <span className="mt-2 block max-h-40 overflow-y-auto border border-[var(--border)] bg-[var(--surface-soft)] p-3 pr-2">
+                  {note.noteSummary || "No note summary generated yet"}
+                </span>
+              </p>
+              <p>
+                <span className="text-[var(--foreground)]">Knowledge build:</span>{" "}
+                <span className="mt-2 block max-h-40 overflow-y-auto border border-[var(--border)] bg-[var(--surface-soft)] p-3 pr-2">
+                  {knowledgeBuild || "No AI extracted claim generated yet"}
+                </span>
               </p>
             </div>
           </aside>

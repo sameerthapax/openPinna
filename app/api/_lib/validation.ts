@@ -51,3 +51,27 @@ export const createThreadSchema = z.object({
 export const sendMessageSchema = z.object({
   userMessage: z.string().trim().min(1),
 });
+
+export const createThreadKnowledgeEventSchema = z.object({
+  eventType: z.string().trim().min(1),
+  actor: z.string().trim().optional(),
+  messageRef: z.string().trim().optional(),
+  payload: z.record(z.any()).optional(),
+  content: z.string().trim().optional(),
+  importanceScore: z.number().optional(),
+  confidenceScore: z.number().optional(),
+  supersedesEventId: uuidSchema.optional(),
+});
+
+export const updateNotePinnaLayoutSchema = z.object({
+  pinnaLayout: z.object({
+    zoom: z.number().min(0.1).max(3),
+    nodes: z.array(
+      z.object({
+        id: uuidSchema,
+        x: z.number(),
+        y: z.number(),
+      }),
+    ),
+  }),
+});

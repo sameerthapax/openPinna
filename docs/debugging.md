@@ -128,3 +128,24 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 
 ## Final Result
 - The original UI style and structure is restored while using the new backend schema.
+
+## New Issue
+- During navigation (Back button or clicking a card), the app showed no immediate feedback under network throttling; users waited on the previous screen before any loading state appeared.
+
+## Suspected Cause
+- Next route-level `loading.tsx` renders when the next segment starts resolving, not exactly at click/back initiation. This created a visible dead zone before fallback UI appeared.
+
+## Files Touched
+- `components/navigation/RouteTransitionOverlay.tsx`
+- `app/layout.tsx`
+
+## Fix Attempted
+- Added a global client-side transition overlay that:
+  - starts immediately on internal anchor click capture,
+  - starts on browser `popstate` (Back/Forward),
+  - stops when pathname/search params update.
+- Mounted this overlay once in `app/layout.tsx` so it covers all frontend routes.
+- Kept a safety timeout to avoid a stuck overlay if navigation aborts.
+
+## Final Result
+- Loading feedback now appears immediately on click/back and blurs the full screen while navigation is in flight, including under throttled network conditions.

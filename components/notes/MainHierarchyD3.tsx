@@ -35,8 +35,11 @@ export function MainHierarchyD3({
       const css = getComputedStyle(root);
       const foreground = css.getPropertyValue("--foreground").trim() || "#111111";
       const frame = root.getBoundingClientRect();
-      svg.setAttribute("width", String(frame.width));
-      svg.setAttribute("height", String(frame.height));
+      const width = Math.max(root.scrollWidth, root.clientWidth);
+      const height = Math.max(root.scrollHeight, root.clientHeight);
+      svg.setAttribute("width", String(width));
+      svg.setAttribute("height", String(height));
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
 
       const connectors: Array<{ id: string; d: string; kind: "project-session" | "session-note" }> = [];
 
@@ -120,10 +123,15 @@ export function MainHierarchyD3({
     draw();
     const observer = new ResizeObserver(draw);
     observer.observe(root);
+    const mutationObserver = new MutationObserver(() => requestAnimationFrame(draw));
+    mutationObserver.observe(root, { childList: true, subtree: true, attributes: true });
+    window.addEventListener("load", draw);
     window.addEventListener("resize", draw);
 
     return () => {
       observer.disconnect();
+      mutationObserver.disconnect();
+      window.removeEventListener("load", draw);
       window.removeEventListener("resize", draw);
     };
   }, [canvasId, sessionLinks]);

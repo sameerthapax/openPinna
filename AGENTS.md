@@ -12,6 +12,8 @@ Rules for future AI agents working on openPinna.
 - Keep components small and focused.
 - Do not mix database logic inside UI components.
 - Use Zod validation before database writes.
+- Do not create manual SQL migrations. All database changes must be defined in `prisma/schema.prisma` and applied via Prisma-generated migrations.
+- Treat `prisma/schema.prisma` as the single source of truth for database structure. If the database needs to change, change the Prisma schema first.
 - Add clear file-level comments for non-obvious logic.
 - Never silently introduce new dependencies without explaining why.
 - Prefer simple, readable code over clever abstractions.

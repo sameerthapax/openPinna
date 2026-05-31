@@ -23,7 +23,10 @@ export default async function ProjectCanvasPage({ params }: { params: Promise<{ 
       sessions: {
         orderBy: { sessionKey: "asc" },
         include: {
-          notes: { orderBy: { createdAt: "desc" }, select: { id: true, noteText: true } },
+          notes: {
+            orderBy: { createdAt: "desc" },
+            select: { id: true, noteText: true, noteSummary: true, source: { select: { title: true } } },
+          },
         },
       },
     },
@@ -80,8 +83,8 @@ export default async function ProjectCanvasPage({ params }: { params: Promise<{ 
                         href={`/notes/${project.id}/sessions/${session.id}/notes/${note.id}`}
                         className="block min-h-[84px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:translate-x-[2px] hover:bg-[var(--surface-soft)]"
                       >
-                        <p className="text-sm font-medium">{note.noteText.slice(0, 80)}</p>
-                        <p className="mt-1 line-clamp-2 text-xs text-[var(--muted-foreground)]">{note.noteText}</p>
+                        <p className="text-sm font-medium">{note.source?.title || "No source title"}</p>
+                        <p className="mt-1 line-clamp-2 text-xs text-[var(--muted-foreground)]">{note.noteSummary || note.noteText}</p>
                       </Link>
                     ))
                   ) : (

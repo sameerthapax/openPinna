@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { GlobalNavControls } from "@/components/navigation/GlobalNavControls";
+import { RouteTransitionOverlay } from "@/components/navigation/RouteTransitionOverlay";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -42,6 +43,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
             </div>
           </header>
           <main className="mx-auto max-w-7xl px-4 py-10 md:px-6 md:py-12">{children}</main>
+          <RouteTransitionOverlay />
         </div>
       </body>
     </html>

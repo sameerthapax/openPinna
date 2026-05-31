@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 
 export async function createNote(input: {
   projectId: string;
@@ -42,4 +43,11 @@ export async function deleteNote(noteId: string) {
 
 export async function updateNoteSummary(noteId: string, summary: string, _embedding?: number[] | null) {
   return db.note.update({ where: { id: noteId }, data: { noteSummary: summary } });
+}
+
+export async function updateNotePinnaLayout(noteId: string, pinnaLayout: Record<string, unknown>) {
+  return db.note.update({
+    where: { id: noteId },
+    data: { pinnaLayout: pinnaLayout as Prisma.InputJsonValue },
+  });
 }

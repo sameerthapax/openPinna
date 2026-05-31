@@ -1,6 +1,7 @@
 import { Worker } from "bullmq";
 import { db } from "@/lib/db";
 import {
+  buildThreadKnowledgeSnapshot,
   createKnowledgeEvent,
   rebuildNoteSummary,
   rebuildProjectSummary,
@@ -51,6 +52,7 @@ new Worker(
       eventType: "thread_summary_updated",
       content: summary,
     });
+    await buildThreadKnowledgeSnapshot(thread.id);
 
     await noteMemoryQueue.add("note-memory-refresh", { noteId: thread.noteId });
   },

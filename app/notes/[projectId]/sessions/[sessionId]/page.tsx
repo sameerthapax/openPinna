@@ -10,7 +10,7 @@ export default async function SessionPage({ params }: { params: Promise<{ projec
     where: { id: sessionId },
     include: {
       project: true,
-      notes: { orderBy: { createdAt: "desc" } },
+      notes: { include: { source: true }, orderBy: { createdAt: "desc" } },
     },
   });
 
@@ -38,8 +38,8 @@ export default async function SessionPage({ params }: { params: Promise<{ projec
             sessionId={sessionId}
             notes={session.notes.map((note) => ({
               id: note.id,
-              title: note.noteText.slice(0, 72),
-              body: note.noteText,
+              title: note.source?.title || "No source title",
+              body: note.noteSummary || note.noteText,
               capturedAt: note.createdAt,
             }))}
           />

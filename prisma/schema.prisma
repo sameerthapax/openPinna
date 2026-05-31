@@ -14,6 +14,8 @@ model Project {
   userId           String?          @map("user_id") @db.Uuid
   title            String
   description      String?          @db.Text
+  isPinned         Boolean          @default(false) @map("is_pinned")
+  isCollapsed      Boolean          @default(false) @map("is_collapsed")
   projectSummary   String?          @map("project_summary") @db.Text
   projectEmbedding Unsupported("vector(1536)")? @map("project_embedding")
   createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -116,6 +118,7 @@ model Note {
   userCommentary   String?          @map("user_commentary") @db.Text
   aiExtractedClaim String?          @map("ai_extracted_claim") @db.Text
   noteSummary      String?          @map("note_summary") @db.Text
+  pinnaLayout      Json?            @map("pinna_layout")
   importanceScore  Decimal          @default(0) @map("importance_score") @db.Decimal
   noteEmbedding    Unsupported("vector(1536)")? @map("note_embedding")
   createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -152,6 +155,11 @@ model ChatThread {
   toolCalls       ToolCall[]
   knowledgeEvents KnowledgeEvent[]
   knowledgeNodes  KnowledgeNode[]
+  baseKnowledgeVersions ThreadBaseKnowledge[]
+  knowledgeBuilds KnowledgeBuild[]
+  knowledgeSummaries KnowledgeSummary[]
+  knowledgeHeads ThreadKnowledgeHead[]
+  knowledgeEdges KnowledgeEdge[]
 
   @@index([noteId])
   @@index([sessionId])
@@ -251,14 +259,26 @@ model KnowledgeEvent {
   thread          ChatThread?      @relation(fields: [threadId], references: [id], onDelete: SetNull)
   eventType       String           @map("event_type")
   content         String           @db.Text
+  seq             BigInt?
+  actor           String?
+  messageRef      String?          @map("message_ref")
+  payload         Json?
+  supersedesEventId String?        @map("supersedes_event_id") @db.Uuid
+  supersedesEvent KnowledgeEvent?  @relation("KnowledgeEventSupersedes", fields: [supersedesEventId], references: [id], onDelete: SetNull)
+  supersededBy    KnowledgeEvent[] @relation("KnowledgeEventSupersedes")
+  occurredAt      DateTime         @default(now()) @map("occurred_at") @db.Timestamptz(6)
   importanceScore Decimal          @default(0) @map("importance_score") @db.Decimal
   confidenceScore Decimal          @default(0) @map("confidence_score") @db.Decimal
   status          String           @default("pending")
   embedding       Unsupported("vector(1536)")?
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  buildFrom       KnowledgeBuild[] @relation("KnowledgeBuildFromEvent")
+  buildTo         KnowledgeBuild[] @relation("KnowledgeBuildToEvent")
 
   @@index([projectId, status])
   @@index([sessionId, status])
+  @@index([threadId, seq])
+  @@unique([threadId, seq])
   @@map("knowledge_events")
 }
 
@@ -274,9 +294,16 @@ model KnowledgeNode {
   note       Note?            @relation(fields: [noteId], references: [id], onDelete: SetNull)
   thread     ChatThread?      @relation(fields: [threadId], references: [id], onDelete: SetNull)
   source     Source?          @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  buildId    String?          @map("build_id") @db.Uuid
+  build      KnowledgeBuild?  @relation(fields: [buildId], references: [id], onDelete: Cascade)
+  stableKey  String?          @map("stable_key")
   nodeType   String           @map("node_type")
   label      String
   summary    String?          @db.Text
+  body       String?          @db.Text
+  state      String?
+  confidence Decimal?         @db.Decimal(5, 4)
+  metadata   Json             @default("{}")
   embedding  Unsupported("vector(1536)")?
   createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime         @default(now()) @map("updated_at") @db.Timestamptz(6)
@@ -284,21 +311,97 @@ model KnowledgeNode {
   toEdges    KnowledgeEdge[]  @relation("ToNode")
 
   @@index([projectId])
+  @@index([threadId, buildId])
+  @@unique([buildId, stableKey])
   @@map("knowledge_nodes")
 }
 
 model KnowledgeEdge {
   id          String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  threadId    String?        @map("thread_id") @db.Uuid
+  buildId     String?        @map("build_id") @db.Uuid
   fromNodeId  String         @map("from_node_id") @db.Uuid
   toNodeId    String         @map("to_node_id") @db.Uuid
+  thread      ChatThread?    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  build       KnowledgeBuild? @relation(fields: [buildId], references: [id], onDelete: Cascade)
   fromNode    KnowledgeNode  @relation("FromNode", fields: [fromNodeId], references: [id], onDelete: Cascade)
   toNode      KnowledgeNode  @relation("ToNode", fields: [toNodeId], references: [id], onDelete: Cascade)
   edgeType    String         @map("edge_type")
   weight      Decimal        @default(1) @db.Decimal
   explanation String?        @db.Text
+  metadata    Json           @default("{}")
   createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([fromNodeId])
   @@index([toNodeId])
+  @@index([buildId, edgeType])
   @@map("knowledge_edges")
+}
+
+model ThreadBaseKnowledge {
+  id         String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  threadId   String     @map("thread_id") @db.Uuid
+  source     String
+  payload    Json
+  version    Int        @default(1)
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  thread     ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, version])
+  @@map("thread_base_knowledge")
+}
+
+model KnowledgeBuild {
+  id             String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  threadId       String          @map("thread_id") @db.Uuid
+  buildVersion   Int             @map("build_version")
+  parentBuildId  String?         @map("parent_build_id") @db.Uuid
+  eventSeqFrom   BigInt          @map("event_seq_from")
+  eventSeqTo     BigInt          @map("event_seq_to")
+  status         String          @default("complete")
+  generator      String
+  eventFromId    String?         @map("event_from_id") @db.Uuid
+  eventToId      String?         @map("event_to_id") @db.Uuid
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  thread         ChatThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  parentBuild    KnowledgeBuild? @relation("KnowledgeBuildParent", fields: [parentBuildId], references: [id], onDelete: SetNull)
+  childBuilds    KnowledgeBuild[] @relation("KnowledgeBuildParent")
+  eventFrom      KnowledgeEvent? @relation("KnowledgeBuildFromEvent", fields: [eventFromId], references: [id], onDelete: SetNull)
+  eventTo        KnowledgeEvent? @relation("KnowledgeBuildToEvent", fields: [eventToId], references: [id], onDelete: SetNull)
+  nodes          KnowledgeNode[]
+  edges          KnowledgeEdge[]
+  summaries      KnowledgeSummary[]
+  heads          ThreadKnowledgeHead[]
+
+  @@unique([threadId, buildVersion])
+  @@index([threadId, createdAt])
+  @@map("knowledge_builds")
+}
+
+model KnowledgeSummary {
+  id          String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  threadId    String         @map("thread_id") @db.Uuid
+  buildId     String         @map("build_id") @db.Uuid
+  summaryType String         @map("summary_type")
+  content     String         @db.Text
+  format      String         @default("markdown")
+  generator   String
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  thread      ChatThread     @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  build       KnowledgeBuild @relation(fields: [buildId], references: [id], onDelete: Cascade)
+
+  @@unique([buildId, summaryType])
+  @@index([threadId, createdAt])
+  @@map("knowledge_summaries")
+}
+
+model ThreadKnowledgeHead {
+  threadId        String          @id @map("thread_id") @db.Uuid
+  currentBuildId  String?         @map("current_build_id") @db.Uuid
+  currentEventSeq BigInt          @default(0) @map("current_event_seq")
+  updatedAt       DateTime        @default(now()) @map("updated_at") @db.Timestamptz(6)
+  thread          ChatThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  currentBuild    KnowledgeBuild? @relation(fields: [currentBuildId], references: [id], onDelete: SetNull)
+
+  @@map("thread_knowledge_heads")
 }

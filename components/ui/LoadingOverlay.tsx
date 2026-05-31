@@ -1,5 +1,8 @@
 "use client";
 
+import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
+
 type LoadingOverlayProps = {
   active: boolean;
   label?: string;
@@ -11,13 +14,19 @@ export function LoadingOverlay({
   active,
   label = "Loading...",
   fullScreen = true,
-  zIndexClass = "z-50",
+  zIndexClass = "z-[70]",
 }: LoadingOverlayProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   if (!active) return null;
 
-  return (
+  const overlay = (
     <div
-      className={`${fullScreen ? "fixed" : "absolute"} inset-0 ${zIndexClass} flex items-center justify-center bg-[var(--overlay-bg)] backdrop-blur-md`}
+      className={`${fullScreen ? "fixed" : "absolute"} inset-0 ${zIndexClass} flex items-center justify-center bg-[color-mix(in_srgb,var(--background)_72%,transparent)] backdrop-blur-lg`}
       aria-live="polite"
       aria-busy="true"
       role="status"
@@ -28,4 +37,10 @@ export function LoadingOverlay({
       </div>
     </div>
   );
+
+  if (fullScreen && mounted) {
+    return createPortal(overlay, document.body);
+  }
+
+  return overlay;
 }

@@ -42,3 +42,48 @@ export async function createSessionNoteAction(sessionId: string, formData: FormD
   revalidatePath(`/notes/${session.projectId}`);
   revalidatePath("/notes");
 }
+
+export async function toggleProjectPinAction(formData: FormData) {
+  const projectId = String(formData.get("projectId") || "");
+  if (!projectId) return;
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { id: true, isPinned: true } });
+  if (!project) return;
+
+  await db.project.update({
+    where: { id: project.id },
+    data: { isPinned: !project.isPinned },
+  });
+
+  revalidatePath("/notes");
+}
+
+export async function toggleProjectCollapsedAction(formData: FormData) {
+  const projectId = String(formData.get("projectId") || "");
+  if (!projectId) return;
+  const project = await db.project.findUnique({ where: { id: projectId }, select: { id: true, isCollapsed: true } });
+  if (!project) return;
+
+  await db.project.update({
+    where: { id: project.id },
+    data: { isCollapsed: !project.isCollapsed },
+  });
+
+  revalidatePath("/notes");
+}
+
+export async function editProjectAction(formData: FormData) {
+  const projectId = String(formData.get("projectId") || "");
+  const title = String(formData.get("title") || "").trim();
+  const description = String(formData.get("description") || "").trim();
+  if (!projectId || !title) return;
+
+  await db.project.update({
+    where: { id: projectId },
+    data: {
+      title,
+      description: description || null,
+    },
+  });
+
+  revalidatePath("/notes");
+}

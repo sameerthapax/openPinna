@@ -20,16 +20,29 @@ type PinnaNode = {
   messages: Array<{ id: string; role: string; content: string }>;
 };
 
+type PinnaLayout = {
+  zoom: number;
+  nodes: Array<{ id: string; x: number; y: number }>;
+};
+
 function uid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
 export function NotePinnaBoard({
-  centralIdea,
+  noteId,
+  noteTitle,
+  selectedText,
+  noteOpinion,
   initialThreads,
+  initialLayout,
 }: {
-  centralIdea: string;
+  noteId: string;
+  noteTitle: string;
+  selectedText: string;
+  noteOpinion: string;
   initialThreads: PinnaSeed[];
+  initialLayout?: PinnaLayout | null;
 }) {
   const boardRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -37,27 +50,38 @@ export function NotePinnaBoard({
   const zoomInLimit = 1.05;
   const [nodes, setNodes] = useState<PinnaNode[]>([]);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  const [isCentralOpen, setIsCentralOpen] = useState(false);
   const [draftMessage, setDraftMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [boardSize, setBoardSize] = useState({ width: 0, height: 0 });
+  const saveLayoutTimeoutRef = useRef<number | null>(null);
+  const hasHydratedRef = useRef(false);
   const sceneWidth = boardSize.width > 0 ? boardSize.width / zoom : 0;
   const sceneHeight = boardSize.height > 0 ? boardSize.height / zoom : 0;
   const nodeWidth = Math.min(360, Math.max(240, sceneWidth * 0.18));
   const nodeHeight = Math.min(230, Math.max(170, sceneHeight * 0.2));
 
   useEffect(() => {
-    const next = initialThreads.slice(0, 5).map((thread, index) => ({
-      id: thread.id,
-      question: thread.title || thread.question,
-      title: thread.title,
-      x: 60 + index * 48,
-      y: 48 + index * 42,
-      messages: thread.messages || [],
-    }));
+    const savedPositions = new Map(
+      (initialLayout?.nodes || []).map((entry) => [entry.id, { x: entry.x, y: entry.y }]),
+    );
+    const next = initialThreads.slice(0, 5).map((thread, index) => {
+      const saved = savedPositions.get(thread.id);
+      return {
+        id: thread.id,
+        question: thread.title || thread.question,
+        title: thread.title,
+        x: saved?.x ?? 60 + index * 48,
+        y: saved?.y ?? 48 + index * 42,
+        messages: thread.messages || [],
+      };
+    });
 
     setNodes(next);
-  }, [initialThreads]);
+    setZoom(initialLayout?.zoom && initialLayout.zoom > 0 ? initialLayout.zoom : 1);
+    hasHydratedRef.current = true;
+  }, [initialThreads, initialLayout]);
 
   useEffect(() => {
     if (sceneWidth <= 0 || sceneHeight <= 0) return;
@@ -160,7 +184,7 @@ export function NotePinnaBoard({
   }, [nodes, sceneHeight, sceneWidth, zoom]);
 
   useEffect(() => {
-    if (!activeNodeId) {
+    if (!activeNodeId && !isCentralOpen) {
       document.documentElement.style.overflow = "";
       document.body.style.overflow = "";
       document.body.classList.remove("modal-open");
@@ -176,7 +200,35 @@ export function NotePinnaBoard({
       document.body.style.overflow = "";
       document.body.classList.remove("modal-open");
     };
-  }, [activeNodeId]);
+  }, [activeNodeId, isCentralOpen]);
+
+  useEffect(() => {
+    if (!noteId || !hasHydratedRef.current || nodes.length === 0) return;
+    if (saveLayoutTimeoutRef.current) {
+      window.clearTimeout(saveLayoutTimeoutRef.current);
+    }
+
+    saveLayoutTimeoutRef.current = window.setTimeout(() => {
+      const payload = {
+        pinnaLayout: {
+          zoom,
+          nodes: nodes.map((node) => ({ id: node.id, x: node.x, y: node.y })),
+        },
+      };
+
+      void fetch(`/api/notes/${noteId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }, 450);
+
+    return () => {
+      if (saveLayoutTimeoutRef.current) {
+        window.clearTimeout(saveLayoutTimeoutRef.current);
+      }
+    };
+  }, [noteId, nodes, zoom]);
 
   const activeNode = useMemo(() => nodes.find((node) => node.id === activeNodeId) || null, [nodes, activeNodeId]);
 
@@ -229,10 +281,16 @@ export function NotePinnaBoard({
             })}
           </svg>
 
-          <div className="absolute left-1/2 top-1/2 w-[340px] -translate-x-1/2 -translate-y-1/2 border border-[var(--border)] bg-[var(--surface)] p-5">
-            <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Central idea</p>
-            <p className="mt-2 text-sm leading-7">{centralIdea}</p>
-          </div>
+          <button
+            type="button"
+            className="absolute left-1/2 top-1/2 w-[340px] -translate-x-1/2 -translate-y-1/2 border border-[var(--border)] bg-[var(--surface)] p-5 text-left transition-colors duration-200 hover:bg-[var(--surface-soft)] active:scale-[0.99]"
+            onClick={() => setIsCentralOpen(true)}
+          >
+            <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Note title</p>
+            <p className="mt-2 text-sm leading-7">{noteTitle}</p>
+            <p className="mt-4 font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Selected text</p>
+            <p className="mt-2 line-clamp-4 text-sm leading-7">{selectedText || "No selected text."}</p>
+          </button>
 
           {nodes.map((node, index) => (
             <button
@@ -432,7 +490,7 @@ export function NotePinnaBoard({
                   <h4 className="mt-2 text-lg font-semibold tracking-[-0.02em]">Mock summary update</h4>
                   <div className="mt-4 space-y-3 text-sm leading-7 text-[var(--muted-foreground)]">
                     <p>
-                      Base summary: <span className="text-[var(--foreground)]">{centralIdea.slice(0, 120)}</span>
+                      Base summary: <span className="text-[var(--foreground)]">{selectedText.slice(0, 120)}</span>
                     </p>
                     <p>
                       Conversation suggests this idea should be tested with concrete evidence and one counter-example before being promoted to session memory.
@@ -442,6 +500,50 @@ export function NotePinnaBoard({
                     </p>
                   </div>
                 </aside>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isCentralOpen ? (
+        <div
+          className="fixed inset-0 z-40 bg-[var(--overlay-bg)]"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setIsCentralOpen(false);
+            }
+          }}
+        >
+          <div className="mx-auto flex h-full max-w-[1800px] items-center justify-center px-4 py-6 sm:px-6">
+            <div className="h-[90dvh] w-[90vw] min-w-[320px] min-h-0 rounded-[28px] border border-white/20 bg-[rgba(242,242,242,0.72)] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.34)] backdrop-blur-3xl dark:bg-[rgba(24,22,19,0.7)] sm:p-7">
+              <div className="mb-5 flex items-start justify-between border-b border-[var(--border)]/70 pb-5">
+                <div>
+                  <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Central note</p>
+                  <h3 className="mt-2 text-2xl font-semibold tracking-[-0.02em] sm:text-3xl">{noteTitle}</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCentralOpen(false)}
+                  className="shrink-0 rounded-[10px] border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-xs tracking-[0.08em] transition-colors hover:bg-[var(--surface)]"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="grid h-[calc(100%-88px)] min-h-0 grid-cols-1 gap-4 lg:grid-cols-2">
+                <section className="min-h-0 overflow-hidden border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
+                  <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Selected text</p>
+                  <div className="mt-3 h-[calc(100%-28px)] min-h-0 overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface-soft)] p-4 text-sm leading-7">
+                    {selectedText || "No selected text."}
+                  </div>
+                </section>
+                <section className="min-h-0 overflow-hidden border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
+                  <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">My opinion</p>
+                  <div className="mt-3 h-[calc(100%-28px)] min-h-0 overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface-soft)] p-4 text-sm leading-7">
+                    {noteOpinion || "No opinion captured."}
+                  </div>
+                </section>
               </div>
             </div>
           </div>
