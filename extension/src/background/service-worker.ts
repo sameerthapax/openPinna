@@ -9,8 +9,15 @@ import { createVoiceRecordingController } from "../voice/voiceRecordingControlle
 
 const VOICE_RECORDING_ACTIVE_KEY = "openpinna:voiceRecordingActive";
 const OFFSCREEN_VOICE_RECORDER_URL = "offscreen/voiceRecorderOffscreen.html";
+const VOICE_BACKEND_STATUS_TTL_MS = 15_000;
 
 let voiceRecordingActiveRuntime = false;
+let voiceBackendStatusCache:
+  | {
+      checkedAt: number;
+      projectIds: string[];
+    }
+  | null = null;
 
 async function setVoiceRecordingActive(nextValue: boolean) {
   voiceRecordingActiveRuntime = nextValue;
@@ -116,7 +123,7 @@ async function readBackendBaseUrl() {
   return normalized;
 }
 
-async function assertSettingsVerified(requireOpenAi: boolean) {
+async function assertSettingsVerified() {
   const settings = await getSettings();
 
   if (!settings.backendApiUrl.trim()) {
@@ -125,10 +132,6 @@ async function assertSettingsVerified(requireOpenAi: boolean) {
 
   if (!settings.backendVerified) {
     throw new Error("BACKEND_NOT_VERIFIED");
-  }
-
-  if (requireOpenAi && !settings.openAiVerified) {
-    throw new Error("OPENAI_NOT_VERIFIED");
   }
 
   return settings;
@@ -177,10 +180,51 @@ async function requestJson<T>(baseUrl: string, path: string, init?: RequestInit)
   return json as T;
 }
 
+async function requestJsonEnvelope<T>(
+  baseUrl: string,
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await fetch(resolveBackendRoute(baseUrl, path), {
+    method: init?.method ?? "GET",
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  const json = (await response.json().catch(() => null)) as
+    | ({ ok?: boolean; message?: string } & T)
+    | null;
+
+  if (!response.ok || !json) {
+    throw new Error(json?.message || `Backend request failed with status ${response.status}.`);
+  }
+
+  return json;
+}
+
 async function listProjectsFromBackend(): Promise<OpenPinnaProjectSummary[]> {
   const baseUrl = await readBackendBaseUrl();
   const projects = await requestJson<Array<{ id: string; title: string }>>(baseUrl, "/api/projects");
   return projects.map((project) => ({ id: project.id, title: project.title }));
+}
+
+async function syncProjectsCache(projects?: OpenPinnaProjectSummary[]) {
+  const nextProjects = projects ?? (await listProjectsFromBackend());
+  const settings = await getSettings();
+  const fallbackProjectId =
+    settings.lastSelectedProjectId && nextProjects.some((project) => project.id === settings.lastSelectedProjectId)
+      ? settings.lastSelectedProjectId
+      : nextProjects[0]?.id || "";
+
+  await updateSettings({
+    cachedProjects: nextProjects,
+    lastSelectedProjectId: fallbackProjectId,
+  });
+
+  return nextProjects;
 }
 
 async function resolveVoiceProjectId(settings: Awaited<ReturnType<typeof getSettings>>) {
@@ -277,32 +321,70 @@ async function verifyBackendHealth(rawUrl: string) {
 
   const response = await fetch(resolveBackendRoute(baseUrl, "/health"));
   if (!response.ok) {
-    await updateSettings({ backendVerified: false });
+    await updateSettings({ backendVerified: false, cachedProjects: [], lastSelectedProjectId: "" });
     throw new Error("Health endpoint check failed.");
   }
 
+  const projects = await requestJson<Array<{ id: string; title: string }>>(baseUrl, "/api/projects");
   await updateSettings({ backendApiUrl: baseUrl, backendVerified: true });
+  await syncProjectsCache(projects.map((project) => ({ id: project.id, title: project.title })));
 }
 
-async function verifyOpenAiKey(rawApiKey: string) {
-  const apiKey = rawApiKey.trim();
+async function verifyVoiceAgentBackendStatus() {
+  if (
+    voiceBackendStatusCache &&
+    Date.now() - voiceBackendStatusCache.checkedAt < VOICE_BACKEND_STATUS_TTL_MS
+  ) {
+    const settings = await getSettings();
+    const hasProjects = settings.cachedProjects.some((project) =>
+      voiceBackendStatusCache?.projectIds.includes(project.id),
+    );
 
-  if (!apiKey) {
-    throw new Error("OpenAI API key is required.");
+    if (hasProjects) {
+      console.info("[openPinna][voice] using cached voice backend status", {
+        checkedAt: voiceBackendStatusCache.checkedAt,
+        cachedProjectCount: settings.cachedProjects.length,
+      });
+      return {
+        openAiConfigured: true,
+        openAiReachable: true,
+        message: "OpenAI is reachable from the backend.",
+        projectCount: settings.cachedProjects.length,
+        projects: settings.cachedProjects,
+      };
+    }
   }
 
-  const response = await fetch("https://api.openai.com/v1/models", {
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-  });
+  const baseUrl = await readBackendBaseUrl();
+  console.info("[openPinna][voice] requesting voice backend status", { baseUrl });
+  const result = await requestJsonEnvelope<{
+    ok: true;
+    openAiConfigured: boolean;
+    openAiReachable: boolean;
+    message: string;
+    projectCount: number;
+    projects: Array<{ id: string; title: string }>;
+  }>(baseUrl, "/api/voice-agent/status");
+  console.info("[openPinna][voice] voice backend status response", result);
 
-  if (!response.ok) {
-    await updateSettings({ openAiVerified: false });
-    throw new Error("OpenAI API key verification failed.");
+  const rawProjects = Array.isArray(result.projects) ? result.projects : [];
+  const projects = rawProjects.map((project) => ({ id: project.id, title: project.title }));
+  await syncProjectsCache(projects);
+
+  if (projects.length === 0) {
+    throw new Error("Create a project first before enabling voice mode.");
   }
 
-  await updateSettings({ openAiApiKey: apiKey, openAiVerified: true });
+  if (!result.openAiConfigured || !result.openAiReachable) {
+    throw new Error(result.message || "OpenAI is not reachable from the backend.");
+  }
+
+  voiceBackendStatusCache = {
+    checkedAt: Date.now(),
+    projectIds: projects.map((project) => project.id),
+  };
+
+  return result;
 }
 
 function respond(sendResponse: (response: unknown) => void, response: unknown) {
@@ -422,13 +504,13 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
         return { ok: true as const, handled: message.type, data: { verified: true as const } };
       }
 
-      if (message.type === "VERIFY_OPENAI") {
-        await verifyOpenAiKey(message.apiKey);
+      if (message.type === "VERIFY_VOICE_AGENT_BACKEND") {
+        await verifyVoiceAgentBackendStatus();
         return { ok: true as const, handled: message.type, data: { verified: true as const } };
       }
 
       if (message.type === "SAVE_CAPTURED_NOTE") {
-        await assertSettingsVerified(true);
+        await assertSettingsVerified();
         const note = await saveNoteToBackend({
           projectId: message.note.projectId,
           sessionDate: message.note.sessionDate,
@@ -445,25 +527,25 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
       }
 
       if (message.type === "LIST_CAPTURED_NOTES") {
-        await assertSettingsVerified(false);
+        await assertSettingsVerified();
         const notes = await listNotesFromBackend();
         return { ok: true as const, handled: message.type, data: notes };
       }
 
       if (message.type === "LIST_PROJECTS") {
-        await assertSettingsVerified(true);
-        const projects = await listProjectsFromBackend();
+        await assertSettingsVerified();
+        const projects = await syncProjectsCache();
         return { ok: true as const, handled: message.type, data: projects };
       }
 
       if (message.type === "DELETE_CAPTURED_NOTE") {
-        await assertSettingsVerified(false);
+        await assertSettingsVerified();
         await deleteNoteFromBackend(message.id);
         return { ok: true as const, handled: message.type, data: { deleted: true } };
       }
 
       if (message.type === "CLEAR_CAPTURED_NOTES") {
-        await assertSettingsVerified(false);
+        await assertSettingsVerified();
         const deletedCount = await clearNotesFromBackend();
         return { ok: true as const, handled: message.type, data: { deletedCount } };
       }
@@ -501,6 +583,8 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
           };
         }
 
+        await verifyVoiceAgentBackendStatus();
+
         const projectId = await resolveVoiceProjectId(settings);
 
         if (!projectId) {
@@ -509,7 +593,7 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
             ok: false as const,
             handled: message.type,
             code: "BACKEND_REQUEST_FAILED" as const,
-            message: "Select a project in the capture panel before starting voice mode.",
+            message: "Create a project first before starting voice mode.",
           };
         }
 
@@ -565,15 +649,6 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
           handled,
           code: "BACKEND_NOT_VERIFIED" as const,
           message: "Verify backend URL in settings before continuing.",
-        };
-      }
-
-      if (errorMessage === "OPENAI_NOT_VERIFIED") {
-        return {
-          ok: false as const,
-          handled,
-          code: "OPENAI_NOT_VERIFIED" as const,
-          message: "Verify OpenAI API key in settings before continuing.",
         };
       }
 

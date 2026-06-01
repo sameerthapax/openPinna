@@ -14,6 +14,14 @@ function normalizeCaptureShortcut(value: unknown): OpenPinnaSettings["captureSho
 function normalizeSettings(
   settings?: Partial<OpenPinnaSettings> | null,
 ): OpenPinnaSettings {
+  const {
+    openAiApiKey: _legacyOpenAiApiKey,
+    openAiVerified: _legacyOpenAiVerified,
+    ...safeSettings
+  } = (settings ?? {}) as Partial<OpenPinnaSettings> & {
+    openAiApiKey?: unknown;
+    openAiVerified?: unknown;
+  };
   const legacyMicPermissionValue =
     typeof (settings as { micPermissionGranted?: unknown } | null)?.micPermissionGranted === "boolean"
       ? Boolean((settings as { micPermissionGranted?: unknown }).micPermissionGranted)
@@ -25,20 +33,26 @@ function normalizeSettings(
 
   return {
     ...DEFAULT_SETTINGS,
-    ...settings,
-    defaultTags: settings?.defaultTags ?? DEFAULT_SETTINGS.defaultTags,
-    captureShortcut: normalizeCaptureShortcut(settings?.captureShortcut),
+    ...safeSettings,
+    cachedProjects: Array.isArray(safeSettings.cachedProjects)
+      ? safeSettings.cachedProjects.filter(
+          (project): project is OpenPinnaSettings["cachedProjects"][number] =>
+            Boolean(project && typeof project.id === "string" && typeof project.title === "string"),
+        )
+      : DEFAULT_SETTINGS.cachedProjects,
+    defaultTags: safeSettings.defaultTags ?? DEFAULT_SETTINGS.defaultTags,
+    captureShortcut: normalizeCaptureShortcut(safeSettings.captureShortcut),
     microphoneCaptureEnabled:
-      typeof settings?.microphoneCaptureEnabled === "boolean"
-        ? settings.microphoneCaptureEnabled
+      typeof safeSettings.microphoneCaptureEnabled === "boolean"
+        ? safeSettings.microphoneCaptureEnabled
         : legacyMicPermissionValue,
     voiceAgentFeatureEnabled:
-      typeof settings?.voiceAgentFeatureEnabled === "boolean"
-        ? settings.voiceAgentFeatureEnabled
+      typeof safeSettings.voiceAgentFeatureEnabled === "boolean"
+        ? safeSettings.voiceAgentFeatureEnabled
         : legacyVoiceEnabledValue,
     voiceMicActive:
-      typeof settings?.voiceMicActive === "boolean"
-        ? settings.voiceMicActive
+      typeof safeSettings.voiceMicActive === "boolean"
+        ? safeSettings.voiceMicActive
         : false,
   };
 }

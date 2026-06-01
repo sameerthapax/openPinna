@@ -10,13 +10,12 @@ export type OpenPinnaSettings = {
   voiceMicActive: boolean;
   microphoneCaptureEnabled: boolean;
   lastSelectedProjectId: string;
+  cachedProjects: OpenPinnaProjectSummary[];
   autoDetectSelection: boolean;
   darkMode: boolean;
   defaultTags: string[];
   backendApiUrl: string;
   backendVerified: boolean;
-  openAiApiKey: string;
-  openAiVerified: boolean;
   captureShortcut: OpenPinnaShortcutPreset;
 };
 
@@ -56,7 +55,7 @@ export type OpenPinnaBackgroundMessage =
   | { type: "LIST_CAPTURED_NOTES" }
   | { type: "LIST_PROJECTS" }
   | { type: "VERIFY_BACKEND"; backendApiUrl: string }
-  | { type: "VERIFY_OPENAI"; apiKey: string }
+  | { type: "VERIFY_VOICE_AGENT_BACKEND" }
   | { type: "CLEAR_CAPTURED_NOTES" }
   | { type: "DELETE_CAPTURED_NOTE"; id: string }
   | { type: "OPEN_OPTIONS" }
@@ -121,7 +120,6 @@ export type OpenPinnaBackgroundMessage =
 export type OpenPinnaBackgroundErrorCode =
   | "BACKEND_URL_MISSING"
   | "BACKEND_NOT_VERIFIED"
-  | "OPENAI_NOT_VERIFIED"
   | "BACKEND_REQUEST_FAILED"
   | "NOT_FOUND";
 

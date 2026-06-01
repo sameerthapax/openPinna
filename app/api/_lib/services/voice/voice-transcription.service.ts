@@ -3,6 +3,52 @@ import path from "node:path";
 
 const transcriptionModel = process.env.OPENAI_TRANSCRIPTION_MODEL || "gpt-4o-mini-transcribe";
 
+export async function getVoiceBackendStatus() {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+
+  if (!apiKey) {
+    return {
+      openAiConfigured: false,
+      openAiReachable: false,
+      message: "OPENAI_API_KEY is missing on the backend.",
+    };
+  }
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/models", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      const json = (await response.json().catch(() => null)) as
+        | { error?: { message?: string } }
+        | null;
+
+      return {
+        openAiConfigured: true,
+        openAiReachable: false,
+        message: json?.error?.message || "OpenAI is not reachable from the backend.",
+      };
+    }
+
+    return {
+      openAiConfigured: true,
+      openAiReachable: true,
+      message: "OpenAI is reachable from the backend.",
+    };
+  } catch (error) {
+    return {
+      openAiConfigured: true,
+      openAiReachable: false,
+      message: error instanceof Error ? error.message : "OpenAI reachability check failed.",
+    };
+  }
+}
+
 export async function transcribeAudioFile(filePath: string): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
 

@@ -17,7 +17,6 @@ import {
   BackendNotVerifiedError,
   BackendUrlMissingError,
   listProjects,
-  OpenAiNotVerifiedError,
   saveCaptureDraft,
 } from "../lib/backend";
 import type { OpenPinnaProjectSummary, OpenPinnaSettings } from "../lib/types";
@@ -483,6 +482,7 @@ export function OverlayApp() {
         setSettings(nextSettings);
         setTags(nextSettings.defaultTags.join(", "));
         setSelectedProjectId(nextSettings.lastSelectedProjectId || "");
+        setProjects(nextSettings.cachedProjects);
         const initialSelection = getSelectedText();
         if (initialSelection) {
           setSelectedText(initialSelection);
@@ -506,6 +506,8 @@ export function OverlayApp() {
       unsubscribe = subscribeToSettings((nextSettings) => {
         setSettings(nextSettings);
         setTags((current) => current || nextSettings.defaultTags.join(", "));
+        setProjects(nextSettings.cachedProjects);
+        setSelectedProjectId((current) => current || nextSettings.lastSelectedProjectId || "");
         if (!nextSettings.overlayEnabled) {
           setExpanded(false);
         }
@@ -601,8 +603,7 @@ export function OverlayApp() {
   const pageTitle = useMemo(() => document.title || "Untitled page", []);
   const themeMode = settings?.darkMode ? "dark" : "light";
   const isBackendReady = Boolean(settings?.backendApiUrl.trim() && settings?.backendVerified);
-  const isOpenAiReady = Boolean(settings?.openAiApiKey.trim() && settings?.openAiVerified);
-  const isCaptureReady = isBackendReady && isOpenAiReady;
+  const isCaptureReady = isBackendReady;
   const hasProjects = projects.length > 0;
   const shouldShowSetup = showSetupPrompt || !isCaptureReady || (!projectsLoading && !hasProjects);
   const createProjectUrl = settings?.backendApiUrl.trim()
@@ -652,7 +653,7 @@ export function OverlayApp() {
   async function saveNote() {
     if (!isCaptureReady) {
       setShowSetupPrompt(true);
-      setStatus("Verify backend and OpenAI settings before creating notes.");
+      setStatus("Verify backend settings before creating notes.");
       return;
     }
 
@@ -693,8 +694,7 @@ export function OverlayApp() {
 
       if (
         error instanceof BackendUrlMissingError ||
-        error instanceof BackendNotVerifiedError ||
-        error instanceof OpenAiNotVerifiedError
+        error instanceof BackendNotVerifiedError
       ) {
         setShowSetupPrompt(true);
       }
@@ -828,18 +828,10 @@ export function OverlayApp() {
                             </h3>
                             <p className="op-setup-copy">
                               {!isCaptureReady
-                                ? "Verify backend and OpenAI settings before creating notes."
-                                : "No project setup yet. Create a project in openPinna first."}
+                                ? "Verify the backend connection before creating notes."
+                                : "Create a project in openPinna first, then come back here."}
                             </p>
                           </div>
-                          <button
-                            className="op-icon-btn"
-                            type="button"
-                            title="Dismiss"
-                            onClick={() => setShowSetupPrompt(false)}
-                          >
-                            <Cross1Icon />
-                          </button>
                         </div>
 
                         {!isCaptureReady ? (
@@ -850,11 +842,7 @@ export function OverlayApp() {
                             </li>
                             <li className="op-step">
                               <span className="op-step-badge">2</span>
-                              <span>Add OpenAI API key and click Verify OpenAI.</span>
-                            </li>
-                            <li className="op-step">
-                              <span className="op-step-badge">3</span>
-                              <span>Reopen this modal and select a project.</span>
+                              <span>Wait for projects to sync into the extension.</span>
                             </li>
                           </ol>
                         ) : (
@@ -882,13 +870,6 @@ export function OverlayApp() {
                           >
                             <ExternalLinkIcon />
                             {!isCaptureReady ? "Open settings" : "Create project"}
-                          </button>
-                          <button
-                            className="op-btn op-btn-secondary"
-                            type="button"
-                            onClick={() => setShowSetupPrompt(false)}
-                          >
-                            Dismiss
                           </button>
                         </div>
                       </div>
@@ -959,7 +940,7 @@ export function OverlayApp() {
                       </div>
                     ) : (
                       <p className="op-footer-note">
-                        openPinna keeps settings local and only enables capture after settings verification.
+                        openPinna keeps settings local and only enables capture after backend verification and project sync.
                       </p>
                     )}
                   </div>

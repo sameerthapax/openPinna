@@ -340,3 +340,34 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 
 ## Final Result
 - Each uploaded chunk should now be a standalone recording segment instead of a follow-on WebM fragment.
+
+## New Issue
+- The extension still required frontend OpenAI verification in Settings and the capture overlay, even though voice transcription now runs entirely through backend env configuration.
+- Project availability in the extension also lagged behind the web app after creating a project.
+
+## Suspected Cause
+- The settings model still treated OpenAI as a frontend-owned dependency.
+- Backend verification only checked `/health`; it did not also sync project state into extension storage.
+- Voice enablement did not re-check backend OpenAI reachability at activation time.
+- The overlay setup card could be dismissed even when setup was still unresolved.
+
+## Files Touched
+- `app/api/_lib/services/voice/voice-transcription.service.ts`
+- `app/api/voice-agent/status/route.ts`
+- `extension/src/background/service-worker.ts`
+- `extension/src/content/OverlayApp.tsx`
+- `extension/src/options/OptionsApp.tsx`
+- `extension/src/lib/backend.ts`
+- `extension/src/lib/types.ts`
+
+## Fix Attempted
+- Added `GET /api/voice-agent/status` to verify backend OpenAI reachability and return the current project list.
+- Updated backend verification to sync project cache into `chrome.storage.local`.
+- Removed frontend OpenAI verification UI from extension settings and overlay capture gating.
+- Blocked the voice feature toggle unless backend verification succeeded and at least one cached project exists.
+- Re-checked backend OpenAI reachability when voice recording is toggled on.
+- Removed the setup prompt cross button and dismiss button so unresolved setup states stay explicit.
+- Added automatic project refresh in the settings page when the page regains focus or becomes visible.
+
+## Final Result
+- The extension now treats OpenAI as a backend concern, keeps project state cached locally, and only allows voice activation when backend OpenAI reachability and project availability are both satisfied.

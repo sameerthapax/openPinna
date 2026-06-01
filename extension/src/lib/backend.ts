@@ -29,18 +29,10 @@ export class BackendNotVerifiedError extends Error {
   }
 }
 
-export class OpenAiNotVerifiedError extends Error {
-  constructor() {
-    super("Verify the OpenAI API key in extension settings before creating notes.");
-    this.name = "OpenAiNotVerifiedError";
-  }
-}
-
 function isBackendErrorCode(value: string): value is OpenPinnaBackgroundErrorCode {
   return (
     value === "BACKEND_URL_MISSING" ||
     value === "BACKEND_NOT_VERIFIED" ||
-    value === "OPENAI_NOT_VERIFIED" ||
     value === "BACKEND_REQUEST_FAILED" ||
     value === "NOT_FOUND"
   );
@@ -96,11 +88,6 @@ function sendBackgroundMessage<T>(
             reject(new BackendNotVerifiedError());
             return;
           }
-          if (isBackendErrorCode(response.code) && response.code === "OPENAI_NOT_VERIFIED") {
-            reject(new OpenAiNotVerifiedError());
-            return;
-          }
-
           reject(new BackendRequestError(response.message));
           return;
         }
@@ -147,10 +134,9 @@ export async function verifyBackend(backendApiUrl: string): Promise<void> {
   });
 }
 
-export async function verifyOpenAi(apiKey: string): Promise<void> {
+export async function verifyVoiceAgentBackend(): Promise<void> {
   await sendBackgroundMessage<{ verified: true }>({
-    type: "VERIFY_OPENAI",
-    apiKey,
+    type: "VERIFY_VOICE_AGENT_BACKEND",
   });
 }
 

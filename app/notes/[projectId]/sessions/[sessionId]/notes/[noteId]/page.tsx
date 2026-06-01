@@ -11,6 +11,8 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
       session: { include: { project: true } },
       source: true,
       capture: true,
+      voiceAudio: true,
+      voiceSession: true,
       chatThreads: {
         include: {
           messages: { orderBy: { createdAt: "asc" } },
@@ -27,6 +29,16 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
   const noteOpinion = note.userCommentary || "";
   const knowledgeBuild = note.aiExtractedClaim || "";
   const sessionDateLabel = new Date(note.session.sessionKey).toLocaleDateString();
+  const sourceMetadata =
+    note.source?.metadata && typeof note.source.metadata === "object" && !Array.isArray(note.source.metadata)
+      ? (note.source.metadata as Record<string, unknown>)
+      : {};
+  const authors = Array.isArray(note.source?.authors)
+    ? note.source.authors
+        .map((author) => (typeof author === "string" ? author : ""))
+        .filter(Boolean)
+    : [];
+  const voiceAudioUrl = note.voiceAudio?.fullAudioPath ? `/api/voice-audios/${note.voiceAudio.id}` : null;
 
   return (
     <div className="space-y-6 pb-16">
@@ -43,6 +55,35 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
             noteTitle={noteTitle}
             selectedText={selectedText}
             noteOpinion={noteOpinion}
+            noteSummary={note.noteSummary || ""}
+            knowledgeBuild={knowledgeBuild}
+            sourceDetails={{
+              sourceType: note.source?.sourceType || null,
+              title: note.source?.title || null,
+              abstract: note.source?.abstract || null,
+              authors,
+              publicationYear: note.source?.publicationYear || null,
+              publicationDate: note.source?.publicationDate?.toISOString() || null,
+              venue: note.source?.venue || null,
+              doi: note.source?.doi || null,
+              url: note.source?.url || null,
+              pdfUrl: note.source?.pdfUrl || null,
+              metadata: sourceMetadata,
+            }}
+            voiceRecording={
+              note.voiceAudio
+                ? {
+                    audioId: note.voiceAudio.id,
+                    audioUrl: voiceAudioUrl,
+                    mimeType: note.voiceAudio.mimeType || null,
+                    transcript: note.voiceAudio.finalTranscript || null,
+                    durationMs: note.voiceAudio.durationMs || null,
+                    pageTitle: note.voiceSession?.pageTitle || null,
+                    pageUrl: note.voiceSession?.pageUrl || null,
+                    startedAt: note.voiceSession?.startedAt?.toISOString() || null,
+                  }
+                : null
+            }
             initialThreads={note.chatThreads.map((thread) => ({
               id: thread.id,
               question: thread.title || thread.pinnaTemplate?.defaultTitle || thread.threadType,

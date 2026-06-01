@@ -10,13 +10,12 @@ export const DEFAULT_SETTINGS: OpenPinnaSettings = {
   voiceMicActive: false,
   microphoneCaptureEnabled: false,
   lastSelectedProjectId: "",
+  cachedProjects: [],
   autoDetectSelection: true,
   darkMode: true,
   defaultTags: [],
   backendApiUrl: "",
   backendVerified: false,
-  openAiApiKey: "",
-  openAiVerified: false,
   captureShortcut: "option-or-alt+p",
 };
 
