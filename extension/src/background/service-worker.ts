@@ -1,10 +1,11 @@
 import { getSettings, updateSettings } from "../lib/chrome-storage";
+import { resolveBackendRoute } from "../lib/backend";
 import type {
   OpenPinnaBackgroundMessage,
   OpenPinnaBackendNote,
   OpenPinnaProjectSummary,
 } from "../lib/types";
-import { resolveBackendRoute } from "../lib/backend";
+import { createVoiceRecordingController } from "../voice/voiceRecordingController";
 
 const VOICE_RECORDING_ACTIVE_KEY = "openpinna:voiceRecordingActive";
 const OFFSCREEN_VOICE_RECORDER_URL = "offscreen/voiceRecorderOffscreen.html";
@@ -52,16 +53,6 @@ async function closeVoiceRecorderOffscreen(): Promise<void> {
   }
 
   await chrome.offscreen.closeDocument();
-}
-
-async function startVoiceRecording(): Promise<void> {
-  await ensureVoiceRecorderOffscreen();
-
-  await chrome.runtime.sendMessage({ type: "START_VOICE_RECORDING" });
-}
-
-async function stopVoiceRecording(): Promise<void> {
-  await chrome.runtime.sendMessage({ type: "STOP_VOICE_RECORDING" });
 }
 
 type BackendNoteRequest = {
@@ -143,11 +134,7 @@ async function assertSettingsVerified(requireOpenAi: boolean) {
   return settings;
 }
 
-async function requestJson<T>(
-  baseUrl: string,
-  path: string,
-  init?: RequestInit,
-): Promise<T> {
+async function requestJson<T>(baseUrl: string, path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(resolveBackendRoute(baseUrl, path), {
     method: init?.method ?? "GET",
     ...init,
@@ -196,6 +183,32 @@ async function listProjectsFromBackend(): Promise<OpenPinnaProjectSummary[]> {
   return projects.map((project) => ({ id: project.id, title: project.title }));
 }
 
+async function resolveVoiceProjectId(settings: Awaited<ReturnType<typeof getSettings>>) {
+  if (settings.lastSelectedProjectId) {
+    const projects = await listProjectsFromBackend().catch(() => []);
+    const hasStoredProject = projects.some((project) => project.id === settings.lastSelectedProjectId);
+
+    if (hasStoredProject) {
+      return settings.lastSelectedProjectId;
+    }
+
+    const fallbackProjectId = projects[0]?.id || "";
+    if (fallbackProjectId) {
+      await updateSettings({ lastSelectedProjectId: fallbackProjectId });
+      return fallbackProjectId;
+    }
+  }
+
+  const projects = await listProjectsFromBackend();
+  const fallbackProjectId = projects[0]?.id || "";
+
+  if (fallbackProjectId) {
+    await updateSettings({ lastSelectedProjectId: fallbackProjectId });
+  }
+
+  return fallbackProjectId;
+}
+
 async function listNotesFromBackend() {
   const baseUrl = await readBackendBaseUrl();
   return requestJson<OpenPinnaBackendNote[]>(baseUrl, "/api/notes");
@@ -203,11 +216,9 @@ async function listNotesFromBackend() {
 
 async function saveNoteToBackend(note: BackendNoteRequest) {
   const baseUrl = await readBackendBaseUrl();
-  const session = await requestJson<SessionResponse>(
-    baseUrl,
-    `/api/projects/${note.projectId}/sessions/today`,
-    { method: "POST" },
-  );
+  const session = await requestJson<SessionResponse>(baseUrl, `/api/projects/${note.projectId}/sessions/today`, {
+    method: "POST",
+  });
 
   const source = await requestJson<SourceResponse>(
     baseUrl,
@@ -230,13 +241,14 @@ async function saveNoteToBackend(note: BackendNoteRequest) {
     baseUrl,
     `/api/projects/${note.projectId}/sessions/${session.id}/notes`,
     {
-    method: "POST",
-    body: JSON.stringify({
-      sourceId: source.id,
-      noteText,
-      userCommentary,
-    }),
-  });
+      method: "POST",
+      body: JSON.stringify({
+        sourceId: source.id,
+        noteText,
+        userCommentary,
+      }),
+    },
+  );
 }
 
 async function deleteNoteFromBackend(id: string) {
@@ -254,43 +266,6 @@ async function clearNotesFromBackend() {
   }
 
   return notes.length;
-}
-
-async function uploadVoiceRecordingToBackend(audio: {
-  mimeType: string;
-  size: number;
-  base64: string;
-}) {
-  const settings = await getSettings();
-  const baseUrl = settings.backendApiUrl.trim().replace(/\/+$/, "");
-
-  if (!baseUrl || !settings.backendVerified) {
-    console.warn("[openPinna] Skipping voice upload: backend is not configured or verified.");
-    return;
-  }
-
-  const response = await fetch(resolveBackendRoute(baseUrl, "/api/voice-recordings"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      mimeType: audio.mimeType,
-      size: audio.size,
-      base64: audio.base64,
-      createdAt: new Date().toISOString(),
-    }),
-  });
-
-  const json = (await response.json().catch(() => null)) as
-    | { ok?: boolean; message?: string; file?: { path?: string; size?: number } }
-    | null;
-
-  if (!response.ok || !json?.ok) {
-    throw new Error(json?.message || `Voice upload failed with status ${response.status}.`);
-  }
-
-  console.info("[openPinna] Voice recording saved", json.file);
 }
 
 async function verifyBackendHealth(rawUrl: string) {
@@ -335,8 +310,13 @@ function respond(sendResponse: (response: unknown) => void, response: unknown) {
   console.info("[openPinna] message response sent", response);
 }
 
+const voiceController = createVoiceRecordingController({
+  ensureOffscreen: ensureVoiceRecorderOffscreen,
+  closeOffscreen: closeVoiceRecorderOffscreen,
+  setVoiceRecordingActive,
+});
+
 chrome.runtime.onInstalled.addListener(() => {
-  // Intentional no-op for now. Command wiring is handled via manifest entries.
   void setVoiceRecordingActive(false);
   void closeVoiceRecorderOffscreen().catch(() => {});
 });
@@ -369,33 +349,19 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
 
   if (message.type === "OPEN_OPTIONS") {
     chrome.runtime.openOptionsPage();
-    respond(sendResponse, {
-      ok: true,
-      handled,
-      data: null,
-    });
+    respond(sendResponse, { ok: true, handled, data: null });
     return false;
   }
 
   if (message.type === "NOTE_SAVED") {
-    respond(sendResponse, {
-      ok: true,
-      handled,
-      data: null,
-    });
+    respond(sendResponse, { ok: true, handled, data: null });
     return false;
   }
 
   if (message.type === "TOGGLE_OVERLAY") {
     getSettings()
       .then((settings) => updateSettings({ overlayEnabled: !settings.overlayEnabled }))
-      .then(() =>
-        respond(sendResponse, {
-          ok: true,
-          handled,
-          data: null,
-        }),
-      )
+      .then(() => respond(sendResponse, { ok: true, handled, data: null }))
       .catch((error) =>
         respond(sendResponse, {
           ok: false,
@@ -408,99 +374,44 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
   }
 
   if (message.type === "VOICE_RECORDING_STARTED") {
-    setVoiceRecordingActive(true)
-      .then(() => updateSettings({ voiceMicActive: true }))
-      .then(() =>
-        respond(sendResponse, {
-          ok: true,
-          handled,
-          data: { active: true },
-        }),
-      )
-      .catch((error) =>
-        respond(sendResponse, {
-          ok: false,
-          handled,
-          code: "BACKEND_REQUEST_FAILED",
-          message: error instanceof Error ? error.message : "Could not update recording state.",
-        }),
-      );
-
-    return true;
+    void voiceController.onRecordingStarted(message.mimeType).catch((error) => {
+      console.error("[openPinna] Could not mark voice recording as started.", error);
+    });
+    respond(sendResponse, { ok: true, handled, data: { active: true } });
+    return false;
   }
 
-  if (message.type === "VOICE_RECORDING_AUDIO_READY") {
-    uploadVoiceRecordingToBackend(message.audio)
-      .then(() =>
-        respond(sendResponse, {
-          ok: true,
-          handled,
-          data: null,
-        }),
-      )
-      .catch((error) =>
-        respond(sendResponse, {
-          ok: false,
-          handled,
-          code: "BACKEND_REQUEST_FAILED",
-          message: error instanceof Error ? error.message : "Voice upload failed.",
-        }),
-      );
-    return true;
+  if (message.type === "VOICE_RECORDING_CHUNK_READY") {
+    void voiceController.onChunkReady(message.chunk).catch((error) => {
+      console.error("[openPinna] Could not process voice chunk.", error);
+    });
+    respond(sendResponse, { ok: true, handled, data: null });
+    return false;
   }
 
   if (message.type === "VOICE_RECORDING_STOPPED") {
-    setVoiceRecordingActive(false)
-      .then(() => updateSettings({ voiceMicActive: false }))
-      .then(() => closeVoiceRecorderOffscreen())
-      .then(() =>
-        respond(sendResponse, {
-          ok: true,
-          handled,
-          data: { active: false },
-        }),
-      )
-      .catch((error) =>
-        respond(sendResponse, {
-          ok: false,
-          handled,
-          code: "BACKEND_REQUEST_FAILED",
-          message: error instanceof Error ? error.message : "Could not finalize recording stop.",
-        }),
-      );
-
-    return true;
+    void voiceController.onRecordingStopped().catch((error) => {
+      console.error("[openPinna] Could not finalize recording stop.", error);
+    });
+    respond(sendResponse, { ok: true, handled, data: { active: false } });
+    return false;
   }
 
   if (message.type === "VOICE_RECORDING_ERROR") {
-    const errorMessage = message.error?.message || "Voice recording error";
     console.error("[openPinna] Voice recording error", message.error);
-
-    setVoiceRecordingActive(false)
-      .then(() => updateSettings({ voiceMicActive: false }))
-      .then(() => closeVoiceRecorderOffscreen())
-      .then(() =>
-        respond(sendResponse, {
-          ok: false,
-          handled,
-          code: "BACKEND_REQUEST_FAILED",
-          message: errorMessage,
-        }),
-      )
-      .catch((error) =>
-        respond(sendResponse, {
-          ok: false,
-          handled,
-          code: "BACKEND_REQUEST_FAILED",
-          message: error instanceof Error ? error.message : errorMessage,
-        }),
-      );
-
-    return true;
+    void voiceController.onRecordingError(message.error).catch((error) => {
+      console.error("[openPinna] Could not clean up voice recording error.", error);
+    });
+    respond(sendResponse, {
+      ok: false,
+      handled,
+      code: "BACKEND_REQUEST_FAILED",
+      message: message.error.message,
+    });
+    return false;
   }
 
-  if (message.type === "START_VOICE_RECORDING" || message.type === "STOP_VOICE_RECORDING") {
-    // Reserved for offscreen document control; handled in offscreen context.
+  if (message.type === "VOICE_RECORDING_START" || message.type === "VOICE_RECORDING_STOP") {
     return false;
   }
 
@@ -530,91 +441,104 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
           sourceMetadata: message.note.sourceMetadata,
         });
 
-        return {
-          ok: true as const,
-          handled: message.type,
-          data: note,
-        };
+        return { ok: true as const, handled: message.type, data: note };
       }
 
       if (message.type === "LIST_CAPTURED_NOTES") {
         await assertSettingsVerified(false);
         const notes = await listNotesFromBackend();
-        return {
-          ok: true as const,
-          handled: message.type,
-          data: notes,
-        };
+        return { ok: true as const, handled: message.type, data: notes };
       }
 
       if (message.type === "LIST_PROJECTS") {
         await assertSettingsVerified(true);
         const projects = await listProjectsFromBackend();
-        return {
-          ok: true as const,
-          handled: message.type,
-          data: projects,
-        };
+        return { ok: true as const, handled: message.type, data: projects };
       }
 
       if (message.type === "DELETE_CAPTURED_NOTE") {
         await assertSettingsVerified(false);
         await deleteNoteFromBackend(message.id);
-        return {
-          ok: true as const,
-          handled: message.type,
-          data: { deleted: true },
-        };
+        return { ok: true as const, handled: message.type, data: { deleted: true } };
       }
 
       if (message.type === "CLEAR_CAPTURED_NOTES") {
         await assertSettingsVerified(false);
         const deletedCount = await clearNotesFromBackend();
-        return {
-          ok: true as const,
-          handled: message.type,
-          data: { deletedCount },
-        };
+        return { ok: true as const, handled: message.type, data: { deletedCount } };
       }
 
       if (message.type === "VOICE_RECORDING_TOGGLE_ON") {
         const settings = await getSettings();
 
-        if (!settings.openAiVerified) {
+        if (!settings.voiceAgentFeatureEnabled) {
           await updateSettings({ voiceMicActive: false });
           return {
             ok: false as const,
             handled: message.type,
-            code: "OPENAI_NOT_VERIFIED" as const,
-            message: "Verify OpenAI API key before using voice mode.",
+            code: "BACKEND_REQUEST_FAILED" as const,
+            message: "Enable Voice agent feature in Settings.",
           };
         }
 
-        await startVoiceRecording();
-        await setVoiceRecordingActive(true);
-        await updateSettings({ voiceMicActive: true });
+        if (!settings.microphoneCaptureEnabled) {
+          await updateSettings({ voiceMicActive: false });
+          return {
+            ok: false as const,
+            handled: message.type,
+            code: "BACKEND_REQUEST_FAILED" as const,
+            message: "Enable microphone capture in Settings.",
+          };
+        }
 
-        return {
-          ok: true as const,
-          handled: message.type,
-          data: { active: true },
-        };
+        if (!settings.backendVerified) {
+          await updateSettings({ voiceMicActive: false });
+          return {
+            ok: false as const,
+            handled: message.type,
+            code: "BACKEND_NOT_VERIFIED" as const,
+            message: "Verify backend URL in settings before continuing.",
+          };
+        }
+
+        const projectId = await resolveVoiceProjectId(settings);
+
+        if (!projectId) {
+          await updateSettings({ voiceMicActive: false });
+          return {
+            ok: false as const,
+            handled: message.type,
+            code: "BACKEND_REQUEST_FAILED" as const,
+            message: "Select a project in the capture panel before starting voice mode.",
+          };
+        }
+
+        await voiceController.start(
+          {
+            projectId,
+            pinnaId: message.payload.pinnaId,
+            sourceJson: message.payload.sourceJson,
+            selectedText: message.payload.selectedText,
+            pageUrl: message.payload.pageUrl,
+            pageTitle: message.payload.pageTitle,
+            startedAt: message.payload.startedAt,
+          },
+          sender.tab?.id,
+        );
+
+        return { ok: true as const, handled: message.type, data: { active: true } };
       }
 
       if (message.type === "VOICE_RECORDING_TOGGLE_OFF") {
-        if (voiceRecordingActiveRuntime) {
-          await stopVoiceRecording();
+        if (voiceRecordingActiveRuntime || voiceController.getState().activeVoiceSessionId) {
+          await voiceController.stop();
         } else {
           await setVoiceRecordingActive(false);
           await updateSettings({ voiceMicActive: false });
           await closeVoiceRecorderOffscreen();
         }
 
-        return {
-          ok: true as const,
-          handled: message.type,
-          data: { active: false },
-        };
+        return { ok: true as const, handled: message.type, data: { active: false } };
       }
 
       return {
@@ -662,7 +586,7 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
     }
   };
 
-  run()
+  void run()
     .then((response) => respond(sendResponse, response))
     .catch((error) => {
       respond(sendResponse, {

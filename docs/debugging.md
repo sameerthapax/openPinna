@@ -250,3 +250,93 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 - Create-session modal now provides explicit already-exists feedback and direct navigation to today's session.
 - Newly created session flow still works and closes modal as before.
 - `npm run typecheck` passes.
+
+## New Issue
+- Voice session creation succeeds, but finalize returns HTTP 500 before a successful voice note is produced.
+- Server logs showed `POST /api/voice-agent/sessions/:sessionId/finalize` without enough surrounding visibility to confirm whether chunk uploads were ever received before finalize.
+
+## Suspected Cause
+- The failure may occur in one of several stages: chunk route never hit, chunk route rejected, chunk persisted but transcription failed, or finalize ran with zero stored chunks.
+- Existing logs were too thin to identify the failing stage reliably.
+
+## Files Touched
+- `app/api/_lib/services/voice/voice-session.service.ts`
+- `app/api/voice-agent/sessions/[sessionId]/chunks/route.ts`
+- `app/api/voice-agent/sessions/[sessionId]/finalize/route.ts`
+- `extension/src/voice/voiceRecordingController.ts`
+- `extension/src/voice/voiceSessionClient.ts`
+
+## Fix Attempted
+- Added backend logs for:
+  - session create request/completion
+  - chunk route entry, validation failure, completion, and route-level failure
+  - chunk persistence, dedupe, transcription start/success/failure
+  - finalize request, loaded session state, zero-chunk failure, combine step, note creation, and finalize completion
+- Added extension logs for:
+  - controller state at start/stop/chunk/finalize/cleanup transitions
+  - chunk upload request/response/failure attempts
+  - finalize request/response/failure
+
+## Final Result
+- The next repro should show whether finalize is racing ahead of chunk uploads or failing inside the backend finalize path.
+
+## New Issue
+- Voice finalize failed with `VOICE_NO_CHUNKS_TO_FINALIZE` even though the extension logged `VOICE_RECORDING_CHUNK_READY` events.
+
+## Suspected Cause
+- The offscreen recorder produced valid chunks, but Chrome runtime message serialization did not preserve the `Blob` object across the offscreen-to-background message boundary.
+- Background upload code then tried to append a non-Blob value to `FormData`, so every chunk upload failed before any request reached the backend chunk route.
+- Separate edge case: if a recording genuinely stops before any `dataavailable` event yields audio, finalize should be skipped with a clear message instead of calling the backend.
+
+## Files Touched
+- `extension/src/lib/types.ts`
+- `extension/src/offscreen/voiceRecorderOffscreen.ts`
+- `extension/src/voice/voiceRecordingController.ts`
+
+## Fix Attempted
+- Changed chunk message payloads to send `ArrayBuffer` bytes instead of `Blob`.
+- Reconstructed the `Blob` in the background worker before multipart upload.
+- Added a no-chunk guard in the controller so truly empty recordings do not call finalize.
+
+## Final Result
+- Chunk upload should now reach the backend chunk route instead of failing in `FormData.append()`.
+- Very short recordings with zero chunks now fail cleanly on the extension side.
+
+## New Issue
+- Voice chunk uploads reached the backend, but every stored chunk file was only 15 bytes and OpenAI transcription failed with `Audio file processing failed`.
+
+## Suspected Cause
+- `ArrayBuffer` still did not survive Chrome runtime message serialization as real binary data.
+- The background worker rebuilt a `Blob` from an object-like payload, producing tiny placeholder files instead of actual audio bytes.
+
+## Files Touched
+- `extension/src/lib/types.ts`
+- `extension/src/offscreen/voiceRecorderOffscreen.ts`
+- `extension/src/voice/voiceRecordingController.ts`
+
+## Fix Attempted
+- Replaced the chunk message payload from `ArrayBuffer` to a plain `number[]` byte array.
+- Reconstructed a `Uint8Array` in the background before building the multipart upload `Blob`.
+
+## Final Result
+- The next repro should produce chunk files with realistic sizes instead of 15-byte placeholder payloads.
+
+## New Issue
+- The first WebM chunk transcribed, but later 5-second chunks failed with `Audio file might be corrupted or unsupported` even though their stored sizes were realistic.
+
+## Suspected Cause
+- `MediaRecorder.start(5000)` produced a valid first WebM segment with container headers, but later timeslice chunks were partial WebM clusters that were not reliably decodable as standalone files by the transcription endpoint.
+
+## Files Touched
+- `extension/src/offscreen/voiceRecorderOffscreen.ts`
+
+## Fix Attempted
+- Replaced timeslice-based chunking with recorder rotation:
+  - start a full recorder segment
+  - stop it after 5 seconds
+  - emit that self-contained chunk
+  - start a fresh recorder for the next 5-second segment
+- Kept final stop waiting for all pending chunk emits before signaling recording stopped.
+
+## Final Result
+- Each uploaded chunk should now be a standalone recording segment instead of a follow-on WebM fragment.

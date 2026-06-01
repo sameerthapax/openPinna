@@ -6,6 +6,8 @@ export async function createNote(input: {
   sessionId: string;
   sourceId?: string | null;
   captureId?: string | null;
+  voiceSessionId?: string | null;
+  voiceAudioId?: string | null;
   noteText: string;
   userCommentary?: string | null;
 }) {
@@ -15,6 +17,8 @@ export async function createNote(input: {
       sessionId: input.sessionId,
       sourceId: input.sourceId || null,
       captureId: input.captureId || null,
+      voiceSessionId: input.voiceSessionId || null,
+      voiceAudioId: input.voiceAudioId || null,
       noteText: input.noteText,
       userCommentary: input.userCommentary || null,
     },

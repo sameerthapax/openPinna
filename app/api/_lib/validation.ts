@@ -35,8 +35,40 @@ export const createCaptureSchema = z.object({
 export const createNoteSchema = z.object({
   sourceId: uuidSchema.optional().nullable(),
   captureId: uuidSchema.optional().nullable(),
+  voiceSessionId: uuidSchema.optional().nullable(),
+  voiceAudioId: uuidSchema.optional().nullable(),
   noteText: z.string().trim().min(1),
   userCommentary: z.string().trim().optional().nullable(),
+});
+
+export const createVoiceSessionSchema = z.object({
+  projectId: uuidSchema.optional().nullable(),
+  pinnaId: z.string().trim().optional().nullable(),
+  sourceJson: z.unknown().optional().nullable(),
+  selectedText: z.string().trim().optional().nullable(),
+  pageUrl: z.string().trim().url().optional().nullable(),
+  pageTitle: z.string().trim().optional().nullable(),
+  startedAt: z.string().datetime().optional().nullable(),
+});
+
+export const voiceChunkAllowedMimeTypes = [
+  "audio/webm",
+  "audio/webm;codecs=opus",
+  "audio/mp4",
+] as const;
+
+export const voiceChunkMetadataSchema = z.object({
+  audioId: uuidSchema,
+  chunkId: z.string().uuid(),
+  chunkIndex: z.coerce.number().int().min(0),
+  mimeType: z.enum(voiceChunkAllowedMimeTypes),
+  sourceJson: z.string().optional().nullable(),
+  selectedText: z.string().optional().nullable(),
+  projectId: uuidSchema.optional().nullable(),
+  pinnaId: z.string().trim().optional().nullable(),
+  pageUrl: z.string().trim().url().optional().nullable(),
+  pageTitle: z.string().trim().optional().nullable(),
+  startedAt: z.string().datetime().optional().nullable(),
 });
 
 export const createThreadSchema = z.object({

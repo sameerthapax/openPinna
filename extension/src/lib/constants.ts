@@ -9,6 +9,7 @@ export const DEFAULT_SETTINGS: OpenPinnaSettings = {
   voiceAgentFeatureEnabled: false,
   voiceMicActive: false,
   microphoneCaptureEnabled: false,
+  lastSelectedProjectId: "",
   autoDetectSelection: true,
   darkMode: true,
   defaultTags: [],

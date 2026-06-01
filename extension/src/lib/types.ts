@@ -9,6 +9,7 @@ export type OpenPinnaSettings = {
   voiceAgentFeatureEnabled: boolean;
   voiceMicActive: boolean;
   microphoneCaptureEnabled: boolean;
+  lastSelectedProjectId: string;
   autoDetectSelection: boolean;
   darkMode: boolean;
   defaultTags: string[];
@@ -61,21 +62,61 @@ export type OpenPinnaBackgroundMessage =
   | { type: "OPEN_OPTIONS" }
   | { type: "TOGGLE_OVERLAY" }
   | { type: "NOTE_SAVED"; note: OpenPinnaBackendNote }
-  | { type: "VOICE_RECORDING_TOGGLE_ON" }
-  | { type: "VOICE_RECORDING_TOGGLE_OFF" }
-  | { type: "START_VOICE_RECORDING" }
-  | { type: "STOP_VOICE_RECORDING" }
-  | { type: "VOICE_RECORDING_STARTED" }
-  | { type: "VOICE_RECORDING_STOPPED" }
-  | { type: "VOICE_RECORDING_ERROR"; error: { message: string; code?: string } }
   | {
-      type: "VOICE_RECORDING_AUDIO_READY";
-      audio: {
+      type: "VOICE_RECORDING_TOGGLE_ON";
+      payload: {
+        pageUrl: string;
+        pageTitle: string;
+        selectedText: string;
+        sourceJson: Record<string, unknown>;
+        startedAt: string;
+        pinnaId?: string;
+      };
+    }
+  | { type: "VOICE_RECORDING_TOGGLE_OFF" }
+  | { type: "VOICE_SESSION_CREATE_REQUESTED" }
+  | { type: "VOICE_SESSION_CREATED"; sessionId: string; audioId: string }
+  | { type: "VOICE_RECORDING_START" }
+  | { type: "VOICE_RECORDING_STARTED"; mimeType: string }
+  | {
+      type: "VOICE_RECORDING_CHUNK_READY";
+      chunk: {
+        chunkId: string;
+        chunkIndex: number;
         mimeType: string;
         size: number;
-        base64: string;
+        byteArray: number[];
       };
-    };
+    }
+  | {
+      type: "VOICE_RECORDING_CHUNK_UPLOADED";
+      chunk: {
+        chunkId: string;
+        chunkIndex: number;
+        transcript?: string;
+        status: "stored" | "transcribed" | "transcription_failed";
+      };
+    }
+  | {
+      type: "VOICE_RECORDING_CHUNK_UPLOAD_FAILED";
+      chunk: {
+        chunkId: string;
+        chunkIndex: number;
+        message: string;
+      };
+    }
+  | { type: "VOICE_RECORDING_STOP" }
+  | { type: "VOICE_RECORDING_STOPPED" }
+  | { type: "VOICE_SESSION_FINALIZE_REQUESTED"; sessionId: string }
+  | {
+      type: "VOICE_SESSION_FINALIZED";
+      sessionId: string;
+      audioId: string;
+      finalTranscript: string;
+      noteId?: string;
+    }
+  | { type: "VOICE_RECORDING_ERROR"; error: { message: string; code?: string } }
+  | { type: "VOICE_STATUS_EVENT"; message: string };
 
 export type OpenPinnaBackgroundErrorCode =
   | "BACKEND_URL_MISSING"

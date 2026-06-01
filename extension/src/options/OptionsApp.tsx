@@ -196,8 +196,8 @@ export function OptionsApp() {
       return;
     }
 
-    if (!settings.openAiVerified) {
-      setStatus("Verify OpenAI API key before enabling voice agent microphone usage.");
+    if (!settings.backendVerified) {
+      setStatus("Verify backend before enabling voice mode.");
       return;
     }
 
@@ -215,6 +215,39 @@ export function OptionsApp() {
         ? "Voice agent feature enabled. Double press M now toggles microphone recording on/off."
         : "Voice agent feature disabled. Double press M is inactive.",
     );
+  }
+
+  async function handleMicrophoneCaptureToggle(nextValue: boolean) {
+    if (!settings) {
+      return;
+    }
+
+    if (!nextValue) {
+      updateSetting("microphoneCaptureEnabled", false);
+      await updateStoredSettings({ microphoneCaptureEnabled: false });
+      if (settings.voiceMicActive) {
+        await chrome.runtime.sendMessage({ type: "VOICE_RECORDING_TOGGLE_OFF" });
+      }
+      setStatus("Microphone capture disabled.");
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setStatus("Microphone permission is not available in this browser context.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      updateSetting("microphoneCaptureEnabled", true);
+      await updateStoredSettings({ microphoneCaptureEnabled: true });
+      setStatus("Microphone capture enabled.");
+    } catch {
+      updateSetting("microphoneCaptureEnabled", false);
+      await updateStoredSettings({ microphoneCaptureEnabled: false });
+      setStatus("Microphone permission is required to use voice capture.");
+    }
   }
 
   return (
@@ -274,13 +307,20 @@ export function OptionsApp() {
             <Toggle
               label="Voice agent feature"
               description={
-                settings.openAiVerified
-                  ? "Enables the double-press M shortcut. The shortcut toggles microphone recording and bubble red state."
-                  : "Verify OpenAI first to unlock the voice agent feature."
+                settings.backendVerified
+                  ? "Enables the double-press M shortcut. The shortcut starts session-based voice recording."
+                  : "Verify backend first to unlock the voice agent feature."
               }
               checked={settings.voiceAgentFeatureEnabled}
-              disabled={!settings.openAiVerified}
+              disabled={!settings.backendVerified}
               onChange={handleVoiceAgentFeatureToggle}
+              theme={settings.darkMode ? "dark" : "light"}
+            />
+            <Toggle
+              label="Enable microphone capture"
+              description="Required before voice mode can start recording."
+              checked={settings.microphoneCaptureEnabled}
+              onChange={handleMicrophoneCaptureToggle}
               theme={settings.darkMode ? "dark" : "light"}
             />
             {settings.voiceAgentFeatureEnabled ? (

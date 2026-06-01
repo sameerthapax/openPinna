@@ -99,6 +99,10 @@ export function subscribeToSettings(
       return;
     }
 
+    if (!(STORAGE_KEYS.settings in changes)) {
+      return;
+    }
+
     const next = changes[STORAGE_KEYS.settings]?.newValue as
       | Partial<OpenPinnaSettings>
       | undefined;

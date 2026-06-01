@@ -482,6 +482,7 @@ export function OverlayApp() {
 
         setSettings(nextSettings);
         setTags(nextSettings.defaultTags.join(", "));
+        setSelectedProjectId(nextSettings.lastSelectedProjectId || "");
         const initialSelection = getSelectedText();
         if (initialSelection) {
           setSelectedText(initialSelection);
@@ -542,17 +543,25 @@ export function OverlayApp() {
   }, [settings?.autoDetectSelection]);
 
   useEffect(() => {
-    if (!expanded || !settings?.backendVerified || !settings.openAiVerified) {
+    if (!expanded || !settings?.backendVerified) {
       return;
     }
 
     let active = true;
     setProjectsLoading(true);
     listProjects()
-      .then((nextProjects) => {
+      .then(async (nextProjects) => {
         if (!active) return;
         setProjects(nextProjects);
-        setSelectedProjectId((current) => current || nextProjects[0]?.id || "");
+        const currentSelection = selectedProjectId || settings?.lastSelectedProjectId || "";
+        const exists = nextProjects.some((project) => project.id === currentSelection);
+        const resolvedProjectId = exists ? currentSelection : nextProjects[0]?.id || "";
+
+        setSelectedProjectId(resolvedProjectId);
+
+        if (resolvedProjectId && resolvedProjectId !== settings?.lastSelectedProjectId) {
+          await updateSettings({ lastSelectedProjectId: resolvedProjectId });
+        }
       })
       .catch((error) => {
         if (!active) return;
@@ -566,7 +575,7 @@ export function OverlayApp() {
     return () => {
       active = false;
     };
-  }, [expanded, settings?.backendVerified, settings?.openAiVerified]);
+  }, [expanded, selectedProjectId, settings?.backendVerified, settings?.lastSelectedProjectId]);
 
   useEffect(() => {
     const onVoiceAgentActivate = () => {
@@ -668,6 +677,7 @@ export function OverlayApp() {
     setStatus("Saving to backend…");
 
     try {
+      await updateSettings({ lastSelectedProjectId: selectedProjectId });
       const savedNote = await saveCaptureDraft(draft);
       setRawThought("");
       setShowSetupPrompt(false);
@@ -889,7 +899,11 @@ export function OverlayApp() {
                           <select
                             className="op-input"
                             value={selectedProjectId}
-                            onChange={(event) => setSelectedProjectId(event.target.value)}
+                            onChange={async (event) => {
+                              const nextProjectId = event.target.value;
+                              setSelectedProjectId(nextProjectId);
+                              await updateSettings({ lastSelectedProjectId: nextProjectId });
+                            }}
                           >
                             {projects.map((project) => (
                               <option key={project.id} value={project.id}>

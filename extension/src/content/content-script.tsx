@@ -2,8 +2,9 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { OVERLAY_ROOT_ID } from "../lib/constants";
 import { getSettings, subscribeToSettings, updateSettings } from "../lib/chrome-storage";
+import { extractSourceMetadata } from "../lib/source-metadata";
 import { OverlayApp } from "./OverlayApp";
-import type { OpenPinnaSettings } from "../lib/types";
+import type { OpenPinnaBackgroundMessage, OpenPinnaSettings } from "../lib/types";
 
 window.addEventListener("unhandledrejection", (event) => {
   const reason =
@@ -63,6 +64,14 @@ function matchesShortcut(event: KeyboardEvent, captureShortcut: OpenPinnaSetting
   }
 
   return false;
+}
+
+function dispatchVoiceStatus(message: string) {
+  window.dispatchEvent(
+    new CustomEvent("openpinna:voice-agent-status", {
+      detail: { message },
+    }),
+  );
 }
 
 if (canInject && !existingRoot) {
@@ -158,11 +167,7 @@ if (canInject && !existingRoot) {
           latestSettings = freshestSettings;
 
           if (!freshestSettings.voiceAgentFeatureEnabled) {
-            window.dispatchEvent(
-              new CustomEvent("openpinna:voice-agent-status", {
-                detail: { message: "Enable Voice agent feature in Settings to use double-press M." },
-              }),
-            );
+            dispatchVoiceStatus("Enable Voice agent feature in Settings to use double-press M.");
             return;
           }
 
@@ -171,40 +176,25 @@ if (canInject && !existingRoot) {
           const shouldStartRecording = !isVoiceRecordingActive;
 
           if (shouldStartRecording && !freshestSettings.microphoneCaptureEnabled) {
-            if (!navigator.mediaDevices?.getUserMedia) {
-              window.dispatchEvent(
-                new CustomEvent("openpinna:voice-agent-status", {
-                  detail: { message: "Microphone permission is not available in this browser context." },
-                }),
-              );
-              return;
-            }
-
-            try {
-              const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-              stream.getTracks().forEach((track) => track.stop());
-              const withMicPermission = await updateSettings({ microphoneCaptureEnabled: true });
-              latestSettings = withMicPermission;
-              await chrome.storage.local.set({ microphoneCaptureEnabled: true });
-            } catch {
-              await updateSettings({ microphoneCaptureEnabled: false });
-              await chrome.storage.local.set({ microphoneCaptureEnabled: false });
-              window.dispatchEvent(
-                new CustomEvent("openpinna:voice-agent-status", {
-                  detail: { message: "Microphone permission is required to use voice capture." },
-                }),
-              );
-              return;
-            }
+            dispatchVoiceStatus("Enable microphone capture in Settings.");
+            return;
           }
 
           const nextSettings = freshestSettings;
           latestSettings = nextSettings;
 
-          const toggleMessageType = shouldStartRecording
-            ? "VOICE_RECORDING_TOGGLE_ON"
-            : "VOICE_RECORDING_TOGGLE_OFF";
-          const toggleResponse = await chrome.runtime.sendMessage({ type: toggleMessageType });
+          const toggleResponse = shouldStartRecording
+            ? await chrome.runtime.sendMessage({
+                type: "VOICE_RECORDING_TOGGLE_ON",
+                payload: {
+                  pageUrl: window.location.href,
+                  pageTitle: document.title || "Untitled page",
+                  selectedText: window.getSelection()?.toString().trim() || "",
+                  sourceJson: extractSourceMetadata(document.title || "Untitled page", window.location.href),
+                  startedAt: new Date().toISOString(),
+                },
+              } satisfies OpenPinnaBackgroundMessage)
+            : await chrome.runtime.sendMessage({ type: "VOICE_RECORDING_TOGGLE_OFF" });
 
           if (!toggleResponse?.ok) {
             await updateSettings({ voiceMicActive: false });
@@ -215,11 +205,7 @@ if (canInject && !existingRoot) {
                 ? toggleResponse.message
                 : "Enable microphone capture in Settings to use voice mode.";
             console.warn("[openPinna] Voice toggle rejected", fallbackMessage);
-            window.dispatchEvent(
-              new CustomEvent("openpinna:voice-agent-status", {
-                detail: { message: fallbackMessage },
-              }),
-            );
+            dispatchVoiceStatus(fallbackMessage);
             return;
           }
 
@@ -277,6 +263,34 @@ if (canInject && !existingRoot) {
   };
 
   window.addEventListener("keydown", onKeyDown, true);
+  chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage) => {
+    if (message.type === "VOICE_STATUS_EVENT") {
+      dispatchVoiceStatus(message.message);
+    }
+
+    if (message.type === "VOICE_RECORDING_CHUNK_UPLOADED") {
+      const chunkNumber = message.chunk.chunkIndex + 1;
+      dispatchVoiceStatus(
+        message.chunk.status === "transcribed"
+          ? `Uploaded chunk ${chunkNumber}`
+          : message.chunk.status === "transcription_failed"
+            ? `Chunk ${chunkNumber} saved, transcription failed`
+            : `Uploaded chunk ${chunkNumber}`,
+      );
+    }
+
+    if (message.type === "VOICE_RECORDING_CHUNK_UPLOAD_FAILED") {
+      dispatchVoiceStatus(`Chunk ${message.chunk.chunkIndex + 1} upload failed`);
+    }
+
+    if (message.type === "VOICE_RECORDING_ERROR") {
+      dispatchVoiceStatus(message.error.message);
+    }
+
+    if (message.type === "VOICE_SESSION_FINALIZED") {
+      dispatchVoiceStatus("Saved voice note");
+    }
+  });
   window.addEventListener("beforeunload", () => {
     unsubscribe();
     window.removeEventListener("keydown", onKeyDown, true);
