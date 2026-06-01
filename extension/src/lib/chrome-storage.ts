@@ -14,11 +14,32 @@ function normalizeCaptureShortcut(value: unknown): OpenPinnaSettings["captureSho
 function normalizeSettings(
   settings?: Partial<OpenPinnaSettings> | null,
 ): OpenPinnaSettings {
+  const legacyMicPermissionValue =
+    typeof (settings as { micPermissionGranted?: unknown } | null)?.micPermissionGranted === "boolean"
+      ? Boolean((settings as { micPermissionGranted?: unknown }).micPermissionGranted)
+      : DEFAULT_SETTINGS.microphoneCaptureEnabled;
+  const legacyVoiceEnabledValue =
+    typeof (settings as { voiceAgentEnabled?: unknown } | null)?.voiceAgentEnabled === "boolean"
+      ? Boolean((settings as { voiceAgentEnabled?: unknown }).voiceAgentEnabled)
+      : DEFAULT_SETTINGS.voiceAgentFeatureEnabled;
+
   return {
     ...DEFAULT_SETTINGS,
     ...settings,
     defaultTags: settings?.defaultTags ?? DEFAULT_SETTINGS.defaultTags,
     captureShortcut: normalizeCaptureShortcut(settings?.captureShortcut),
+    microphoneCaptureEnabled:
+      typeof settings?.microphoneCaptureEnabled === "boolean"
+        ? settings.microphoneCaptureEnabled
+        : legacyMicPermissionValue,
+    voiceAgentFeatureEnabled:
+      typeof settings?.voiceAgentFeatureEnabled === "boolean"
+        ? settings.voiceAgentFeatureEnabled
+        : legacyVoiceEnabledValue,
+    voiceMicActive:
+      typeof settings?.voiceMicActive === "boolean"
+        ? settings.voiceMicActive
+        : false,
   };
 }
 

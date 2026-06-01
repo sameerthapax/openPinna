@@ -138,6 +138,16 @@ const overlayCss = `
       background 260ms cubic-bezier(0.16,1,0.3,1),
       border-color 260ms cubic-bezier(0.16,1,0.3,1);
   }
+  .op-bubble[data-voice-active="true"] {
+    border-color: rgba(245, 119, 119, 0.8);
+    background:
+      linear-gradient(180deg, rgba(245, 119, 119, 0.82), rgba(231, 88, 88, 0.76)),
+      var(--op-panel-strong);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.2),
+      inset 0 -1px 0 rgba(255,255,255,0.08),
+      0 24px 70px -34px rgba(190, 48, 48, 0.7);
+  }
   .op-bubble:hover {
     transform: translateY(-2px);
     border-color: var(--op-border-strong);
@@ -563,9 +573,18 @@ export function OverlayApp() {
       playVoiceActivationCue();
     };
 
+    const onVoiceAgentStatus = (event: Event) => {
+      const customEvent = event as CustomEvent<{ message?: string }>;
+      if (customEvent.detail?.message) {
+        setStatus(customEvent.detail.message);
+      }
+    };
+
     window.addEventListener("openpinna:voice-agent-activate", onVoiceAgentActivate);
+    window.addEventListener("openpinna:voice-agent-status", onVoiceAgentStatus);
     return () => {
       window.removeEventListener("openpinna:voice-agent-activate", onVoiceAgentActivate);
+      window.removeEventListener("openpinna:voice-agent-status", onVoiceAgentStatus);
     };
   }, []);
 
@@ -687,7 +706,11 @@ export function OverlayApp() {
   return (
     <>
       <style>{overlayCss}</style>
-      <div className="op-extension" data-theme={themeMode}>
+      <div
+        className="op-extension"
+        data-theme={themeMode}
+        data-voice-active={settings?.voiceMicActive ? "true" : "false"}
+      >
         {expanded ? (
           <button
             className="op-backdrop"
@@ -934,6 +957,7 @@ export function OverlayApp() {
               <span className="op-voice-ring" data-active={voiceCueActive ? "true" : "false"} />
               <button
                 className="op-bubble"
+                data-voice-active={settings?.voiceMicActive ? "true" : "false"}
                 type="button"
                 title={expanded ? "Close openPinna capture" : "Open openPinna capture"}
                 onClick={() => {

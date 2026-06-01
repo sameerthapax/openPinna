@@ -139,10 +139,37 @@ Current extension limitations:
 - Notes require a configured backend API URL and are not stored locally.
 - No real AI note structuring yet.
 - No authentication.
-- No voice capture.
+- Voice capture currently records manually via voice mode toggle (double-press `M`) and does not include transcription.
 - The floating overlay does not appear on restricted Chrome pages such as `chrome://newtab`, `chrome://extensions`, the Chrome Web Store, or most browser-owned PDF viewer surfaces.
 - The overlay uses `<all_urls>` host permissions so the content script can appear on arbitrary research pages and the background worker can reach whichever backend origin you configure. This is intentionally broad for the MVP and should be narrowed if the product later targets specific domains.
-- The only Chrome API permission is `storage`, used for local settings.
+- Chrome permissions include `storage`, `offscreen`, `activeTab`, and `tabs` to support settings, voice recording lifecycle, and tab context.
+
+Voice capture privacy:
+
+- Microphone is used only after the user enables `Enable microphone capture` in extension settings.
+- Recording starts only when voice mode is activated using double-press `M`.
+- Recording stops when voice mode is toggled off.
+- Microphone tracks are stopped immediately when recording stops.
+- No wake-word detection.
+- No always-listening behavior.
+
+Voice recording test checklist:
+
+1. Open extension Settings.
+2. Enable `Enable microphone capture`.
+3. Confirm browser asks for microphone permission.
+4. Allow permission.
+5. Open any normal web page.
+6. Double-press `M`.
+7. Confirm voice mode turns on and recording starts.
+8. Confirm browser mic indicator appears.
+9. Double-press `M` again.
+10. Confirm voice mode turns off and recording stops.
+11. Confirm browser mic indicator disappears.
+12. Confirm offscreen document closes.
+13. Confirm background logs show `VOICE_RECORDING_AUDIO_READY`.
+14. Deny mic permission and confirm `Enable microphone capture` remains off.
+15. Disable microphone capture while recording and confirm recording stops.
 
 Extension development commands:
 

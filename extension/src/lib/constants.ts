@@ -6,7 +6,9 @@ export const STORAGE_KEYS = {
 
 export const DEFAULT_SETTINGS: OpenPinnaSettings = {
   overlayEnabled: true,
-  voiceAgentEnabled: false,
+  voiceAgentFeatureEnabled: false,
+  voiceMicActive: false,
+  microphoneCaptureEnabled: false,
   autoDetectSelection: true,
   darkMode: true,
   defaultTags: [],

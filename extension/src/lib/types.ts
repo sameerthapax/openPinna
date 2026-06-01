@@ -6,7 +6,9 @@ export type OpenPinnaShortcutPreset =
 
 export type OpenPinnaSettings = {
   overlayEnabled: boolean;
-  voiceAgentEnabled: boolean;
+  voiceAgentFeatureEnabled: boolean;
+  voiceMicActive: boolean;
+  microphoneCaptureEnabled: boolean;
   autoDetectSelection: boolean;
   darkMode: boolean;
   defaultTags: string[];
@@ -58,7 +60,22 @@ export type OpenPinnaBackgroundMessage =
   | { type: "DELETE_CAPTURED_NOTE"; id: string }
   | { type: "OPEN_OPTIONS" }
   | { type: "TOGGLE_OVERLAY" }
-  | { type: "NOTE_SAVED"; note: OpenPinnaBackendNote };
+  | { type: "NOTE_SAVED"; note: OpenPinnaBackendNote }
+  | { type: "VOICE_RECORDING_TOGGLE_ON" }
+  | { type: "VOICE_RECORDING_TOGGLE_OFF" }
+  | { type: "START_VOICE_RECORDING" }
+  | { type: "STOP_VOICE_RECORDING" }
+  | { type: "VOICE_RECORDING_STARTED" }
+  | { type: "VOICE_RECORDING_STOPPED" }
+  | { type: "VOICE_RECORDING_ERROR"; error: { message: string; code?: string } }
+  | {
+      type: "VOICE_RECORDING_AUDIO_READY";
+      audio: {
+        mimeType: string;
+        size: number;
+        base64: string;
+      };
+    };
 
 export type OpenPinnaBackgroundErrorCode =
   | "BACKEND_URL_MISSING"

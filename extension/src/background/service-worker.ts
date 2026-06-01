@@ -6,6 +6,64 @@ import type {
 } from "../lib/types";
 import { resolveBackendRoute } from "../lib/backend";
 
+const VOICE_RECORDING_ACTIVE_KEY = "openpinna:voiceRecordingActive";
+const OFFSCREEN_VOICE_RECORDER_URL = "offscreen/voiceRecorderOffscreen.html";
+
+let voiceRecordingActiveRuntime = false;
+
+async function setVoiceRecordingActive(nextValue: boolean) {
+  voiceRecordingActiveRuntime = nextValue;
+  await chrome.storage.local.set({ [VOICE_RECORDING_ACTIVE_KEY]: nextValue });
+}
+
+async function hasOffscreenDocumentSafe(): Promise<boolean> {
+  try {
+    if (!chrome.offscreen?.hasDocument) {
+      console.warn("[openPinna] chrome.offscreen.hasDocument is unavailable in this Chrome version.");
+      return false;
+    }
+
+    return await chrome.offscreen.hasDocument();
+  } catch (error) {
+    console.warn("[openPinna] Could not check offscreen document state.", error);
+    return false;
+  }
+}
+
+async function ensureVoiceRecorderOffscreen(): Promise<void> {
+  const exists = await hasOffscreenDocumentSafe();
+
+  if (exists) {
+    return;
+  }
+
+  await chrome.offscreen.createDocument({
+    url: OFFSCREEN_VOICE_RECORDER_URL,
+    reasons: ["USER_MEDIA"],
+    justification: "Record microphone audio when the user activates OpenPinna voice mode",
+  });
+}
+
+async function closeVoiceRecorderOffscreen(): Promise<void> {
+  const exists = await hasOffscreenDocumentSafe();
+
+  if (!exists) {
+    return;
+  }
+
+  await chrome.offscreen.closeDocument();
+}
+
+async function startVoiceRecording(): Promise<void> {
+  await ensureVoiceRecorderOffscreen();
+
+  await chrome.runtime.sendMessage({ type: "START_VOICE_RECORDING" });
+}
+
+async function stopVoiceRecording(): Promise<void> {
+  await chrome.runtime.sendMessage({ type: "STOP_VOICE_RECORDING" });
+}
+
 type BackendNoteRequest = {
   projectId: string;
   sessionDate: string;
@@ -198,6 +256,43 @@ async function clearNotesFromBackend() {
   return notes.length;
 }
 
+async function uploadVoiceRecordingToBackend(audio: {
+  mimeType: string;
+  size: number;
+  base64: string;
+}) {
+  const settings = await getSettings();
+  const baseUrl = settings.backendApiUrl.trim().replace(/\/+$/, "");
+
+  if (!baseUrl || !settings.backendVerified) {
+    console.warn("[openPinna] Skipping voice upload: backend is not configured or verified.");
+    return;
+  }
+
+  const response = await fetch(resolveBackendRoute(baseUrl, "/api/voice-recordings"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      mimeType: audio.mimeType,
+      size: audio.size,
+      base64: audio.base64,
+      createdAt: new Date().toISOString(),
+    }),
+  });
+
+  const json = (await response.json().catch(() => null)) as
+    | { ok?: boolean; message?: string; file?: { path?: string; size?: number } }
+    | null;
+
+  if (!response.ok || !json?.ok) {
+    throw new Error(json?.message || `Voice upload failed with status ${response.status}.`);
+  }
+
+  console.info("[openPinna] Voice recording saved", json.file);
+}
+
 async function verifyBackendHealth(rawUrl: string) {
   const baseUrl = rawUrl.trim().replace(/\/+$/, "");
 
@@ -242,6 +337,13 @@ function respond(sendResponse: (response: unknown) => void, response: unknown) {
 
 chrome.runtime.onInstalled.addListener(() => {
   // Intentional no-op for now. Command wiring is handled via manifest entries.
+  void setVoiceRecordingActive(false);
+  void closeVoiceRecorderOffscreen().catch(() => {});
+});
+
+chrome.runtime.onStartup?.addListener(() => {
+  void setVoiceRecordingActive(false);
+  void closeVoiceRecorderOffscreen().catch(() => {});
 });
 
 chrome.commands.onCommand.addListener(async (command) => {
@@ -303,6 +405,103 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
         }),
       );
     return true;
+  }
+
+  if (message.type === "VOICE_RECORDING_STARTED") {
+    setVoiceRecordingActive(true)
+      .then(() => updateSettings({ voiceMicActive: true }))
+      .then(() =>
+        respond(sendResponse, {
+          ok: true,
+          handled,
+          data: { active: true },
+        }),
+      )
+      .catch((error) =>
+        respond(sendResponse, {
+          ok: false,
+          handled,
+          code: "BACKEND_REQUEST_FAILED",
+          message: error instanceof Error ? error.message : "Could not update recording state.",
+        }),
+      );
+
+    return true;
+  }
+
+  if (message.type === "VOICE_RECORDING_AUDIO_READY") {
+    uploadVoiceRecordingToBackend(message.audio)
+      .then(() =>
+        respond(sendResponse, {
+          ok: true,
+          handled,
+          data: null,
+        }),
+      )
+      .catch((error) =>
+        respond(sendResponse, {
+          ok: false,
+          handled,
+          code: "BACKEND_REQUEST_FAILED",
+          message: error instanceof Error ? error.message : "Voice upload failed.",
+        }),
+      );
+    return true;
+  }
+
+  if (message.type === "VOICE_RECORDING_STOPPED") {
+    setVoiceRecordingActive(false)
+      .then(() => updateSettings({ voiceMicActive: false }))
+      .then(() => closeVoiceRecorderOffscreen())
+      .then(() =>
+        respond(sendResponse, {
+          ok: true,
+          handled,
+          data: { active: false },
+        }),
+      )
+      .catch((error) =>
+        respond(sendResponse, {
+          ok: false,
+          handled,
+          code: "BACKEND_REQUEST_FAILED",
+          message: error instanceof Error ? error.message : "Could not finalize recording stop.",
+        }),
+      );
+
+    return true;
+  }
+
+  if (message.type === "VOICE_RECORDING_ERROR") {
+    const errorMessage = message.error?.message || "Voice recording error";
+    console.error("[openPinna] Voice recording error", message.error);
+
+    setVoiceRecordingActive(false)
+      .then(() => updateSettings({ voiceMicActive: false }))
+      .then(() => closeVoiceRecorderOffscreen())
+      .then(() =>
+        respond(sendResponse, {
+          ok: false,
+          handled,
+          code: "BACKEND_REQUEST_FAILED",
+          message: errorMessage,
+        }),
+      )
+      .catch((error) =>
+        respond(sendResponse, {
+          ok: false,
+          handled,
+          code: "BACKEND_REQUEST_FAILED",
+          message: error instanceof Error ? error.message : errorMessage,
+        }),
+      );
+
+    return true;
+  }
+
+  if (message.type === "START_VOICE_RECORDING" || message.type === "STOP_VOICE_RECORDING") {
+    // Reserved for offscreen document control; handled in offscreen context.
+    return false;
   }
 
   const run = async () => {
@@ -375,6 +574,46 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
           ok: true as const,
           handled: message.type,
           data: { deletedCount },
+        };
+      }
+
+      if (message.type === "VOICE_RECORDING_TOGGLE_ON") {
+        const settings = await getSettings();
+
+        if (!settings.openAiVerified) {
+          await updateSettings({ voiceMicActive: false });
+          return {
+            ok: false as const,
+            handled: message.type,
+            code: "OPENAI_NOT_VERIFIED" as const,
+            message: "Verify OpenAI API key before using voice mode.",
+          };
+        }
+
+        await startVoiceRecording();
+        await setVoiceRecordingActive(true);
+        await updateSettings({ voiceMicActive: true });
+
+        return {
+          ok: true as const,
+          handled: message.type,
+          data: { active: true },
+        };
+      }
+
+      if (message.type === "VOICE_RECORDING_TOGGLE_OFF") {
+        if (voiceRecordingActiveRuntime) {
+          await stopVoiceRecording();
+        } else {
+          await setVoiceRecordingActive(false);
+          await updateSettings({ voiceMicActive: false });
+          await closeVoiceRecorderOffscreen();
+        }
+
+        return {
+          ok: true as const,
+          handled: message.type,
+          data: { active: false },
         };
       }
 

@@ -9,6 +9,7 @@ import {
   resetSettings,
   saveSettings,
   subscribeToSettings,
+  updateSettings as updateStoredSettings,
 } from "../lib/chrome-storage";
 import {
   BackendUrlMissingError,
@@ -190,35 +191,30 @@ export function OptionsApp() {
     }
   }
 
-  async function handleVoiceAgentToggle(nextValue: boolean) {
+  async function handleVoiceAgentFeatureToggle(nextValue: boolean) {
     if (!settings) {
       return;
     }
 
-    if (!nextValue) {
-      updateSetting("voiceAgentEnabled", false);
-      return;
-    }
-
     if (!settings.openAiVerified) {
-      setStatus("Verify OpenAI API key before enabling voice agent.");
+      setStatus("Verify OpenAI API key before enabling voice agent microphone usage.");
       return;
     }
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setStatus("Microphone permission is not available in this browser context.");
-      return;
+    updateSetting("voiceAgentFeatureEnabled", nextValue);
+    await updateStoredSettings({ voiceAgentFeatureEnabled: nextValue });
+
+    if (!nextValue) {
+      updateSetting("voiceMicActive", false);
+      await updateStoredSettings({ voiceMicActive: false });
+      await chrome.runtime.sendMessage({ type: "VOICE_RECORDING_TOGGLE_OFF" });
     }
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((track) => track.stop());
-      updateSetting("voiceAgentEnabled", true);
-      setStatus("Voice agent enabled. Double press M to activate voice agent.");
-    } catch {
-      updateSetting("voiceAgentEnabled", false);
-      setStatus("Microphone permission was denied. Voice agent remains off.");
-    }
+    setStatus(
+      nextValue
+        ? "Voice agent feature enabled. Double press M now toggles microphone recording on/off."
+        : "Voice agent feature disabled. Double press M is inactive.",
+    );
   }
 
   return (
@@ -276,17 +272,27 @@ export function OptionsApp() {
               theme={settings.darkMode ? "dark" : "light"}
             />
             <Toggle
-              label="Voice agent"
+              label="Voice agent feature"
               description={
                 settings.openAiVerified
-                  ? "Double press M to activate voice agent. Enabling asks for microphone permission."
-                  : "Verify OpenAI first to unlock voice agent. Double press M to activate voice agent."
+                  ? "Enables the double-press M shortcut. The shortcut toggles microphone recording and bubble red state."
+                  : "Verify OpenAI first to unlock the voice agent feature."
               }
-              checked={settings.voiceAgentEnabled}
+              checked={settings.voiceAgentFeatureEnabled}
               disabled={!settings.openAiVerified}
-              onChange={handleVoiceAgentToggle}
+              onChange={handleVoiceAgentFeatureToggle}
               theme={settings.darkMode ? "dark" : "light"}
             />
+            {settings.voiceAgentFeatureEnabled ? (
+              <Toggle
+                label="Microphone active"
+                description="Controlled automatically by double press M while voice feature is enabled."
+                checked={settings.voiceMicActive}
+                disabled
+                onChange={() => {}}
+                theme={settings.darkMode ? "dark" : "light"}
+              />
+            ) : null}
           </section>
 
           <section className="grid gap-4 md:grid-cols-2">
