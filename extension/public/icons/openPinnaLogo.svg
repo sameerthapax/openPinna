@@ -1,0 +1,45 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="openPinnaGradient" x1="155" y1="70" x2="380" y2="450" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0B3FAE"/>
+      <stop offset="0.52" stop-color="#0077FF"/>
+      <stop offset="1" stop-color="#57C7FF"/>
+    </linearGradient>
+
+    <filter id="softShadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#0077FF" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <!-- OpenPinna transparent-background icon -->
+  <g filter="url(#softShadow)">
+    <path
+      d="M247.5 62C163.5 62 109 124 109 206.5C109 258 137 286 148.5 331.5C154 353 157 377 151 402"
+      stroke="url(#openPinnaGradient)"
+      stroke-width="34"
+      stroke-linecap="round"
+      stroke-linejoin="round"/>
+
+    <path
+      d="M248 62C335 62 394 123.5 394 209.5C394 263 363.5 298.5 343 343C331 369 326 407 300.5 431C278 452 239.5 455 215.5 435C195 418 184 392 190 364"
+      stroke="url(#openPinnaGradient)"
+      stroke-width="34"
+      stroke-linecap="round"
+      stroke-linejoin="round"/>
+
+    <path
+      d="M299 189C296.5 143 257 124 219.5 139C181 154.5 166 199 186.5 229.5C203.5 255 240 262.5 254.5 291C269 319.5 245 342 229.5 356C215.5 368.5 207 384.5 211 402"
+      stroke="url(#openPinnaGradient)"
+      stroke-width="31"
+      stroke-linecap="round"
+      stroke-linejoin="round"/>
+
+    <path
+      d="M190 364C197 415 250 435 289 405C319 382 319 346 335 313C352 278 371 252 371 211"
+      stroke="url(#openPinnaGradient)"
+      stroke-width="22"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      opacity="0.9"/>
+  </g>
+</svg>

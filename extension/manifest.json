@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "openPinna",
+  "description": "Capture research context from papers, articles, docs, and web pages.",
+  "version": "0.1.0",
+  "icons": {
+    "16": "icons/openPinnaLogo.png",
+    "32": "icons/openPinnaLogo.png",
+    "48": "icons/openPinnaLogo.png",
+    "128": "icons/openPinnaLogo.png"
+  },
+  "permissions": ["offscreen", "storage", "activeTab", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/openPinnaLogo.png",
+        "icons/openPinnaLogo.svg",
+        "soundfx/micOnSoundFX.mp3"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "commands": {
+    "toggle-overlay": {
+      "suggested_key": {
+        "default": "Alt+P",
+        "mac": "Alt+P",
+        "windows": "Alt+P",
+        "linux": "Alt+P"
+      },
+      "description": "Toggle the openPinna overlay"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/openPinnaLogo.png",
+      "32": "icons/openPinnaLogo.png",
+      "48": "icons/openPinnaLogo.png",
+      "128": "icons/openPinnaLogo.png"
+    },
+    "default_title": "openPinna",
+    "default_popup": "src/popup/index.html"
+  },
+  "options_page": "src/options/index.html",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["assets/content-script.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

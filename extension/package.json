@@ -1,0 +1,26 @@
+{
+  "name": "openpinna-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build && vite build --config vite.content.config.ts && vite build --config vite.background.config.ts && vite build --config vite.offscreen.config.ts && mkdir -p dist/offscreen && cp src/offscreen/voiceRecorderOffscreen.html dist/offscreen/voiceRecorderOffscreen.html && cp manifest.json dist/manifest.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@radix-ui/react-icons": "^1.3.2",
+    "@vitejs/plugin-react": "^5.1.1",
+    "vite": "^7.2.4",
+    "typescript": "^5.9.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwindcss": "^4.1.17",
+    "@tailwindcss/vite": "^4.1.17"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.34",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.5"
+  }
+}
