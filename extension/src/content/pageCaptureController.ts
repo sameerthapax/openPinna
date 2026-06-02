@@ -13,6 +13,14 @@ type ScreenshotTarget =
 
 let activeScreenshotTarget: ScreenshotTarget | null = null;
 
+function toCaptureInt(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.round(value));
+}
+
 function buildTargetId() {
   return `openpinna-target-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -121,12 +129,12 @@ export function measurePageCapture(): OpenPinnaPageCaptureMetrics {
     return {
       targetId: target.id,
       targetKind: target.kind,
-      originalScrollLeft: target.element.scrollLeft,
-      originalScrollTop: target.element.scrollTop,
-      scrollY: target.element.scrollTop,
-      viewportWidth: target.element.clientWidth,
-      viewportHeight: target.element.clientHeight,
-      documentHeight: target.element.scrollHeight,
+      originalScrollLeft: toCaptureInt(target.element.scrollLeft),
+      originalScrollTop: toCaptureInt(target.element.scrollTop),
+      scrollY: toCaptureInt(target.element.scrollTop),
+      viewportWidth: toCaptureInt(target.element.clientWidth),
+      viewportHeight: toCaptureInt(target.element.clientHeight),
+      documentHeight: toCaptureInt(target.element.scrollHeight),
       devicePixelRatio: window.devicePixelRatio || 1,
     };
   }
@@ -134,15 +142,17 @@ export function measurePageCapture(): OpenPinnaPageCaptureMetrics {
   return {
     targetId: target.id,
     targetKind: target.kind,
-    originalScrollLeft: window.scrollX,
-    originalScrollTop: window.scrollY,
-    scrollY: window.scrollY,
-    viewportWidth: window.innerWidth,
-    viewportHeight: window.innerHeight,
-    documentHeight: Math.max(
+    originalScrollLeft: toCaptureInt(window.scrollX),
+    originalScrollTop: toCaptureInt(window.scrollY),
+    scrollY: toCaptureInt(window.scrollY),
+    viewportWidth: toCaptureInt(window.innerWidth),
+    viewportHeight: toCaptureInt(window.innerHeight),
+    documentHeight: toCaptureInt(
+      Math.max(
       document.documentElement?.scrollHeight || 0,
       document.body?.scrollHeight || 0,
       window.innerHeight,
+      ),
     ),
     devicePixelRatio: window.devicePixelRatio || 1,
   };
@@ -163,12 +173,12 @@ export async function scrollPageCaptureTarget(targetId: string, scrollY: number,
   }
 
   if (activeScreenshotTarget.kind === "element") {
-    activeScreenshotTarget.element.scrollTo({ top: scrollY, left });
+    activeScreenshotTarget.element.scrollTo({ top: toCaptureInt(scrollY), left: toCaptureInt(left) });
     await waitForScrollSettle();
-    return activeScreenshotTarget.element.scrollTop;
+    return toCaptureInt(activeScreenshotTarget.element.scrollTop);
   }
 
-  window.scrollTo({ top: scrollY, left });
+  window.scrollTo({ top: toCaptureInt(scrollY), left: toCaptureInt(left) });
   await waitForScrollSettle();
-  return window.scrollY;
+  return toCaptureInt(window.scrollY);
 }

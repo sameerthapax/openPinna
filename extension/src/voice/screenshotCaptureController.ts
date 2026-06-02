@@ -57,6 +57,27 @@ type ScreenshotCaptureControllerDeps = {
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+function toCaptureInt(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.round(value));
+}
+
+function normalizeMetrics(metrics: OpenPinnaPageCaptureMetrics): OpenPinnaPageCaptureMetrics {
+  return {
+    ...metrics,
+    originalScrollLeft: toCaptureInt(metrics.originalScrollLeft),
+    originalScrollTop: toCaptureInt(metrics.originalScrollTop),
+    scrollY: toCaptureInt(metrics.scrollY),
+    viewportWidth: toCaptureInt(metrics.viewportWidth),
+    viewportHeight: toCaptureInt(metrics.viewportHeight),
+    documentHeight: toCaptureInt(metrics.documentHeight),
+  };
+}
+
 function shouldForceScreenshotOnly(sourceJson?: Record<string, unknown>) {
   return (
       sourceJson?.forceScreenshotOnly === true ||
@@ -317,7 +338,7 @@ export function createScreenshotCaptureController(deps: ScreenshotCaptureControl
         voiceSessionId: params.voiceSessionId,
       });
 
-      const metrics = await measurePage(params.tabId);
+      const metrics = normalizeMetrics(await measurePage(params.tabId));
       runtime.originalTargetId = metrics.targetId;
       runtime.originalScrollTop = metrics.originalScrollTop;
       runtime.originalScrollLeft = metrics.originalScrollLeft;
@@ -356,7 +377,9 @@ export function createScreenshotCaptureController(deps: ScreenshotCaptureControl
       let consecutiveFailures = 0;
 
       while (!runtime.cancelled && chunkIndex < maxScreenshotChunks) {
-        const actualScrollY = await scrollTo(params.tabId, metrics.targetId, nextScrollY);
+        const actualScrollY = toCaptureInt(
+          await scrollTo(params.tabId, metrics.targetId, toCaptureInt(nextScrollY)),
+        );
 
         if (chunkIndex > 0 && actualScrollY <= lastSuccessfulScrollY) {
           break;

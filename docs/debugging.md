@@ -556,3 +556,22 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 
 ## Final Result
 - OpenPinna now skips redundant screenshot/PDF capture for URLs that already have a stored artifact in today's session and links the existing `captureId` into the new note instead.
+
+## New Issue
+- Screenshot chunk uploads could fail on some normal websites with `Expected integer, received float`, causing repeated chunk retry failures and eventually aborting the screenshot session.
+
+## Suspected Cause
+- Some pages return fractional `window.scrollY`, `scrollTop`, or viewport/document metrics, especially under zoomed layouts or transformed scrolling containers.
+- The backend screenshot metadata schema intentionally requires integer values for `scrollY`, `viewportWidth`, `viewportHeight`, and `documentHeight`, but the extension was forwarding raw browser measurements without normalization.
+
+## Files Touched
+- `extension/src/content/pageCaptureController.ts`
+- `extension/src/voice/screenshotCaptureController.ts`
+
+## Fix Attempted
+- Added integer normalization for measured scroll positions and viewport/document dimensions inside the content-side page capture controller.
+- Normalized screenshot controller metrics and actual scroll results again before building chunk metadata and upload payloads.
+- Kept backend validation strict instead of loosening the schema, so bad metadata is corrected at the capture boundary.
+
+## Final Result
+- Screenshot chunk metadata now stays integer-safe on sites that expose fractional scroll values, so the upload route should stop rejecting normal webpage captures with `Expected integer, received float`.
