@@ -9,7 +9,7 @@
     "48": "icons/openPinnaLogo.png",
     "128": "icons/openPinnaLogo.png"
   },
-  "permissions": ["offscreen", "storage", "activeTab", "tabs"],
+  "permissions": ["offscreen", "storage", "activeTab", "tabs","downloads"],
   "host_permissions": ["<all_urls>"],
   "web_accessible_resources": [
     {

@@ -33,3 +33,16 @@ export function sourceDir(projectId: string, sessionId: string) {
 export function captureDir(projectId: string, sessionId: string) {
   return `projects/${projectId}/sessions/${sessionId}/captures`;
 }
+
+export function captureArtifactDir(
+  projectId: string,
+  sessionId: string,
+  artifactType: "screenshot" | "pdf",
+) {
+  const artifactFolder = artifactType === "pdf" ? "pdfs" : "screenshots";
+  return `${captureDir(projectId, sessionId)}/${artifactFolder}`;
+}
+
+export function getUploadRoot() {
+  return path.resolve(uploadRoot);
+}

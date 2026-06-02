@@ -14,8 +14,9 @@ import {
 import {
   BackendUrlMissingError,
   clearCapturedNotes,
+  listProjects,
   verifyBackend,
-  verifyOpenAi,
+  verifyVoiceAgentBackend,
 } from "../lib/backend";
 import type { OpenPinnaSettings, OpenPinnaShortcutPreset } from "../lib/types";
 import { parseTags } from "../lib/utils";
@@ -46,6 +47,45 @@ export function OptionsApp() {
     document.body.setAttribute("data-theme", settings.darkMode ? "dark" : "light");
     document.documentElement.setAttribute("data-theme", settings.darkMode ? "dark" : "light");
   }, [settings]);
+
+  useEffect(() => {
+    if (!settings?.backendVerified) {
+      return;
+    }
+
+    let active = true;
+
+    const refreshProjects = async () => {
+      try {
+        await listProjects();
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        console.warn("[openPinna] could not refresh cached projects", error);
+      }
+    };
+
+    void refreshProjects();
+
+    const handleRefresh = () => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+
+      void refreshProjects();
+    };
+
+    window.addEventListener("focus", handleRefresh);
+    document.addEventListener("visibilitychange", handleRefresh);
+
+    return () => {
+      active = false;
+      window.removeEventListener("focus", handleRefresh);
+      document.removeEventListener("visibilitychange", handleRefresh);
+    };
+  }, [settings?.backendVerified]);
 
   if (!settings) {
     return (
@@ -78,10 +118,6 @@ export function OptionsApp() {
     } catch {
       return false;
     }
-  }
-
-  function hasLikelyOpenAiKey(value: string) {
-    return value.trim().startsWith("sk-") && value.trim().length > 20;
   }
 
   function parseCaptureShortcut(value: string): OpenPinnaShortcutPreset {
@@ -153,38 +189,14 @@ export function OptionsApp() {
       setIsServerLoading(true);
       setLoadingLabel("Verifying backend...");
       await verifyBackend(settings.backendApiUrl);
-      setStatus("Backend verified via /health.");
+      const nextProjects = await listProjects();
+      setStatus(
+        nextProjects.length > 0
+          ? `Backend verified. ${nextProjects.length} project${nextProjects.length === 1 ? "" : "s"} ready.`
+          : "Backend verified. Create a project first to unlock voice mode.",
+      );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Backend verification failed.");
-    } finally {
-      setIsServerLoading(false);
-      setLoadingLabel("");
-    }
-  }
-
-  async function handleVerifyOpenAi() {
-    if (!settings?.backendVerified) {
-      setStatus("Verify backend first, then verify OpenAI API key.");
-      return;
-    }
-
-    if (!settings?.openAiApiKey.trim()) {
-      setStatus("Add an OpenAI API key first.");
-      return;
-    }
-
-    if (!hasLikelyOpenAiKey(settings.openAiApiKey)) {
-      setStatus("OpenAI API key format looks invalid.");
-      return;
-    }
-
-    try {
-      setIsServerLoading(true);
-      setLoadingLabel("Verifying OpenAI API key...");
-      await verifyOpenAi(settings.openAiApiKey);
-      setStatus("OpenAI API key verified.");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "OpenAI verification failed.");
     } finally {
       setIsServerLoading(false);
       setLoadingLabel("");
@@ -196,9 +208,23 @@ export function OptionsApp() {
       return;
     }
 
-    if (!settings.openAiVerified) {
-      setStatus("Verify OpenAI API key before enabling voice agent microphone usage.");
+    if (!settings.backendVerified) {
+      setStatus("Verify backend before enabling voice mode.");
       return;
+    }
+
+    if (nextValue) {
+      try {
+        setIsServerLoading(true);
+        setLoadingLabel("Checking voice backend...");
+        await verifyVoiceAgentBackend();
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Voice backend verification failed.");
+        return;
+      } finally {
+        setIsServerLoading(false);
+        setLoadingLabel("");
+      }
     }
 
     updateSetting("voiceAgentFeatureEnabled", nextValue);
@@ -212,10 +238,49 @@ export function OptionsApp() {
 
     setStatus(
       nextValue
-        ? "Voice agent feature enabled. Double press M now toggles microphone recording on/off."
+        ? "Voice agent feature enabled. Double press M now toggles microphone recording on and off."
         : "Voice agent feature disabled. Double press M is inactive.",
     );
   }
+
+  async function handleMicrophoneCaptureToggle(nextValue: boolean) {
+    if (!settings) {
+      return;
+    }
+
+    if (!nextValue) {
+      updateSetting("microphoneCaptureEnabled", false);
+      await updateStoredSettings({ microphoneCaptureEnabled: false });
+      if (settings.voiceMicActive) {
+        await chrome.runtime.sendMessage({ type: "VOICE_RECORDING_TOGGLE_OFF" });
+      }
+      setStatus("Microphone capture disabled.");
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setStatus("Microphone permission is not available in this browser context.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      updateSetting("microphoneCaptureEnabled", true);
+      await updateStoredSettings({ microphoneCaptureEnabled: true });
+      setStatus("Microphone capture enabled.");
+    } catch {
+      updateSetting("microphoneCaptureEnabled", false);
+      await updateStoredSettings({ microphoneCaptureEnabled: false });
+      setStatus("Microphone permission is required to use voice capture.");
+    }
+  }
+
+  const hasCachedProjects = settings.cachedProjects.length > 0;
+  const canEnableVoiceAgent = settings.backendVerified && hasCachedProjects;
+  const createProjectUrl = settings.backendApiUrl.trim()
+    ? `${settings.backendApiUrl.trim().replace(/\/+$/, "")}/notes`
+    : "";
 
   return (
     <main
@@ -274,13 +339,22 @@ export function OptionsApp() {
             <Toggle
               label="Voice agent feature"
               description={
-                settings.openAiVerified
-                  ? "Enables the double-press M shortcut. The shortcut toggles microphone recording and bubble red state."
-                  : "Verify OpenAI first to unlock the voice agent feature."
+                !settings.backendVerified
+                  ? "Verify the backend first."
+                  : hasCachedProjects
+                    ? "Enables the double-press M shortcut. Activation checks backend OpenAI reachability before recording starts."
+                    : "Create a project first to unlock voice mode."
               }
               checked={settings.voiceAgentFeatureEnabled}
-              disabled={!settings.openAiVerified}
+              disabled={!settings.voiceAgentFeatureEnabled && !canEnableVoiceAgent}
               onChange={handleVoiceAgentFeatureToggle}
+              theme={settings.darkMode ? "dark" : "light"}
+            />
+            <Toggle
+              label="Enable microphone capture"
+              description="Required before voice mode can start recording."
+              checked={settings.microphoneCaptureEnabled}
+              onChange={handleMicrophoneCaptureToggle}
               theme={settings.darkMode ? "dark" : "light"}
             />
             {settings.voiceAgentFeatureEnabled ? (
@@ -363,71 +437,77 @@ export function OptionsApp() {
                 ) : null}
               </div>
             </div>
-            <div className="grid gap-2 md:col-span-2 rounded-[12px] border border-[var(--op-border)] bg-[var(--op-soft)] p-4">
-              <p className="text-xs font-medium uppercase tracking-[0.16em] text-[var(--op-muted)]">
-                API
-              </p>
-              <TextInput
-                label="OpenAI API key"
-                type="password"
-                value={settings.openAiApiKey}
-                disabled={settings.openAiVerified}
-                placeholder="sk-..."
-                helper={
-                  settings.openAiVerified
-                    ? "API key verified and locked."
-                    : settings.backendVerified
-                      ? "Used for upcoming AI workflows. Verify before capture modal unlocks."
-                      : "Verify backend first before OpenAI verification."
-                }
-                onChange={(event) =>
-                  setSettings((current) =>
-                    current
-                      ? {
-                          ...current,
-                          openAiApiKey: event.target.value,
-                          openAiVerified: false,
-                        }
-                      : current,
-                  )
-                }
-                theme={settings.darkMode ? "dark" : "light"}
-              />
-              <div className="flex items-center gap-2">
-                {!settings.openAiVerified &&
-                settings.backendVerified &&
-                hasLikelyOpenAiKey(settings.openAiApiKey) ? (
+            <div className="grid gap-3 md:col-span-2 rounded-[12px] border border-[var(--op-border)] bg-[var(--op-soft)] p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="grid gap-1">
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-[var(--op-muted)]">
+                    Projects
+                  </p>
+                  <p className="text-sm leading-6 text-[var(--op-text)]">
+                    {settings.backendVerified
+                      ? hasCachedProjects
+                        ? `${settings.cachedProjects.length} project${settings.cachedProjects.length === 1 ? "" : "s"} cached for capture and voice.`
+                        : "No projects found yet."
+                      : "Backend verification is required before projects can sync."}
+                  </p>
+                </div>
+                {settings.backendVerified ? (
                   <Button
                     variant="secondary"
                     theme={settings.darkMode ? "dark" : "light"}
                     disabled={isServerLoading}
-                    onClick={handleVerifyOpenAi}
+                    onClick={async () => {
+                      try {
+                        setIsServerLoading(true);
+                        setLoadingLabel("Refreshing projects...");
+                        const nextProjects = await listProjects();
+                        setStatus(
+                          nextProjects.length > 0
+                            ? "Project cache refreshed."
+                            : "No projects found yet. Create a project first.",
+                        );
+                      } catch (error) {
+                        setStatus(
+                          error instanceof Error ? error.message : "Could not refresh projects.",
+                        );
+                      } finally {
+                        setIsServerLoading(false);
+                        setLoadingLabel("");
+                      }
+                    }}
                   >
-                    Verify OpenAI
-                  </Button>
-                ) : null}
-                {settings.openAiVerified ? (
-                  <Button
-                    variant="ghost"
-                    theme={settings.darkMode ? "dark" : "light"}
-                    disabled={isServerLoading}
-                    onClick={() =>
-                      setSettings((current) =>
-                        current
-                          ? {
-                              ...current,
-                              openAiApiKey: "",
-                              openAiVerified: false,
-                            }
-                          : current,
-                      )
-                    }
-                  >
-                    <Cross2Icon />
-                    Remove
+                    Refresh
                   </Button>
                 ) : null}
               </div>
+              {hasCachedProjects ? (
+                <div className="flex flex-wrap gap-2">
+                  {settings.cachedProjects.slice(0, 4).map((project) => (
+                    <span
+                      key={project.id}
+                      className="inline-flex rounded-full border border-[var(--op-border)] bg-[var(--op-soft-strong)] px-3 py-1 text-xs text-[var(--op-text)]"
+                    >
+                      {project.title}
+                    </span>
+                  ))}
+                </div>
+              ) : settings.backendVerified ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-xs leading-5 text-[var(--op-muted)]">
+                    Voice mode stays locked until at least one project exists.
+                  </span>
+                  {createProjectUrl ? (
+                    <Button
+                      variant="secondary"
+                      theme={settings.darkMode ? "dark" : "light"}
+                      type="button"
+                      onClick={() => window.open(createProjectUrl, "_blank", "noopener,noreferrer")}
+                    >
+                      Create project first
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             <label className="grid gap-2 md:col-span-2">
               <span className="text-xs font-medium uppercase tracking-[0.16em] text-[var(--op-muted)]">

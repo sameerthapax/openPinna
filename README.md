@@ -57,9 +57,15 @@ Update `DATABASE_URL` in `.env` if your local PostgreSQL credentials differ.
 
 ## Environment Variables
 
-| Variable       | Purpose                                     |
-| -------------- | ------------------------------------------- |
+| Variable | Purpose |
+| --- | --- |
 | `DATABASE_URL` | PostgreSQL connection string used by Prisma |
+| `REDIS_URL` | Redis connection used by BullMQ workers |
+| `UPLOAD_DIR` | Local upload root for source/capture files |
+| `SCREENSHOT_UPLOAD_DIR` | Local screenshot root, defaults to `./screenshots` |
+| `VOICE_UPLOAD_DIR` | Local voice audio root, defaults to `./audio` |
+| `OPENAI_API_KEY` | Required for backend voice transcription |
+| `OPENAI_TRANSCRIPTION_MODEL` | Optional transcription model override |
 
 ## Database Setup
 
@@ -139,7 +145,7 @@ Current extension limitations:
 - Notes require a configured backend API URL and are not stored locally.
 - No real AI note structuring yet.
 - No authentication.
-- Voice capture currently records manually via voice mode toggle (double-press `M`) and does not include transcription.
+- Voice capture requires a verified backend plus an already-selected project in the capture overlay.
 - The floating overlay does not appear on restricted Chrome pages such as `chrome://newtab`, `chrome://extensions`, the Chrome Web Store, or most browser-owned PDF viewer surfaces.
 - The overlay uses `<all_urls>` host permissions so the content script can appear on arbitrary research pages and the background worker can reach whichever backend origin you configure. This is intentionally broad for the MVP and should be narrowed if the product later targets specific domains.
 - Chrome permissions include `storage`, `offscreen`, `activeTab`, and `tabs` to support settings, voice recording lifecycle, and tab context.
@@ -153,6 +159,79 @@ Voice capture privacy:
 - No wake-word detection.
 - No always-listening behavior.
 
+Voice session flow:
+
+1. Double-press `M`.
+2. Background worker creates `POST /api/voice-agent/sessions`.
+3. Offscreen document starts `MediaRecorder.start(5000)`.
+4. Each 5-second chunk uploads to `POST /api/voice-agent/sessions/:sessionId/chunks`.
+5. Backend stores the chunk file first, then transcribes it with OpenAI, then stores the chunk transcript/status.
+6. Double-press `M` again to stop.
+7. Background waits for the final `dataavailable` event and all pending chunk uploads.
+8. Background calls `POST /api/voice-agent/sessions/:sessionId/finalize`.
+9. Backend combines chunk audio into `full.webm`, combines chunk transcripts, and creates the final note.
+
+Voice audio storage layout:
+
+```text
+./audio/{audioId}/
+  chunks/
+    0.webm
+    1.webm
+    2.webm
+  full.webm
+```
+
+Screenshot capture flow:
+
+1. Double-press `M`.
+2. Background starts the voice session and audio recording immediately.
+3. In parallel, the extension starts a screenshot session for the same `voiceSessionId` and `audioId`.
+4. The content script measures the current page and scroll target.
+5. The background captures visible viewport PNG chunks, uploads each chunk immediately, and scrolls downward until the page ends or the chunk cap is reached.
+6. Backend stores screenshot chunks under `./audio/{audioId}/screenshots/chunks/`.
+7. When screenshot capture stops, backend merges the stored chunks into `./audio/{audioId}/screenshots/full.png`, writes `manifest.json`, and creates a linked `Capture`.
+
+Screenshot storage layout:
+
+```text
+./audio/{audioId}/
+  chunks/
+    0.webm
+    1.webm
+  screenshots/
+    chunks/
+      0.png
+      1.png
+      2.png
+    full.png
+    manifest.json
+  full.webm
+```
+
+Voice API routes:
+
+- `GET /health`
+- `POST /api/voice-agent/sessions`
+- `GET /api/voice-agent/sessions/:sessionId`
+- `POST /api/voice-agent/sessions/:sessionId/chunks`
+- `POST /api/voice-agent/sessions/:sessionId/finalize`
+- `POST /api/voice-agent/sessions/:sessionId/screenshots/start`
+- `POST /api/voice-agent/sessions/:sessionId/screenshots/chunks`
+- `POST /api/voice-agent/sessions/:sessionId/screenshots/finalize`
+- `POST /api/voice-agent/sessions/:sessionId/screenshots/cancel`
+- `GET /api/captures/:captureId`
+
+Voice database tables:
+
+- `voice_audio_sessions`
+- `voice_audios`
+- `voice_audio_chunks`
+- `voice_screenshot_sessions`
+- `voice_screenshot_chunks`
+- `notes.voice_session_id`
+- `notes.voice_audio_id`
+
 Voice recording test checklist:
 
 1. Open extension Settings.
@@ -160,16 +239,32 @@ Voice recording test checklist:
 3. Confirm browser asks for microphone permission.
 4. Allow permission.
 5. Open any normal web page.
-6. Double-press `M`.
-7. Confirm voice mode turns on and recording starts.
-8. Confirm browser mic indicator appears.
-9. Double-press `M` again.
-10. Confirm voice mode turns off and recording stops.
-11. Confirm browser mic indicator disappears.
-12. Confirm offscreen document closes.
-13. Confirm background logs show `VOICE_RECORDING_AUDIO_READY`.
-14. Deny mic permission and confirm `Enable microphone capture` remains off.
-15. Disable microphone capture while recording and confirm recording stops.
+6. Open the capture overlay once and select a project.
+7. Double-press `M`.
+8. Confirm session creation succeeds and the offscreen document opens.
+9. Speak for roughly 12 seconds.
+10. Confirm chunks `0`, `1`, and `2` upload.
+11. Confirm files exist under `./audio/{audioId}/chunks/`.
+12. Double-press `M` again.
+13. Confirm background waits for pending uploads before finalize.
+14. Confirm `./audio/{audioId}/full.webm` exists.
+15. Confirm chunk transcripts are stored, final transcript is stored, and the final note `userCommentary` equals the final transcript.
+16. Confirm browser mic indicator disappears and the offscreen document closes.
+
+Screenshot chunk capture test checklist:
+
+1. Open a long article or paper page.
+2. Double-press `M`.
+3. Confirm voice recording starts immediately.
+4. Confirm screenshot session starts in parallel.
+5. Confirm screenshot files appear under `./audio/{audioId}/screenshots/chunks/0.png`, `1.png`, `2.png`.
+6. Let the page capture at least 10 chunks.
+7. Double-press `M` again.
+8. Confirm `./audio/{audioId}/screenshots/full.png` and `manifest.json` exist.
+9. Confirm the note has a screenshot link and clicking it opens the merged PNG.
+10. Confirm the original page scroll position is restored.
+11. Confirm audio recording still finalizes if screenshot capture partially fails.
+12. Test a 50-page paper and confirm capture stops by page end or the `75` chunk cap.
 
 Extension development commands:
 
@@ -215,8 +310,10 @@ Knowledge flows upward asynchronously only:
 | --- | --- |
 | `DATABASE_URL` | PostgreSQL connection string |
 | `REDIS_URL` | Redis connection used by BullMQ |
-| `OPENAI_API_KEY` | Optional. Enables future embedding/model integrations |
+| `OPENAI_API_KEY` | Enables backend voice transcription and future model integrations |
+| `OPENAI_TRANSCRIPTION_MODEL` | Optional backend transcription model override |
 | `UPLOAD_DIR` | Local upload root, defaults to `./uploads` |
+| `VOICE_UPLOAD_DIR` | Local voice audio root, defaults to `./audio` |
 | `POSTGRES_START_PORT` | Optional start port for Postgres dynamic scan (default `9001`) |
 | `REDIS_START_PORT` | Optional start port for Redis dynamic scan (default `9002`) |
 

@@ -1,4 +1,9 @@
-import { deleteNote, getNote, updateNotePinnaLayout } from "@/app/api/_lib/services/note.service";
+import {
+  deleteNote,
+  getNote,
+  getNoteProcessingState,
+  updateNotePinnaLayout,
+} from "@/app/api/_lib/services/note.service";
 import { updateNotePinnaLayoutSchema } from "@/app/api/_lib/validation";
 import { jsonError, jsonOk, parseJson, zodError } from "@/app/api/_lib/http";
 
@@ -6,9 +11,9 @@ type Ctx = { params: Promise<{ noteId: string }> };
 
 export async function GET(_request: Request, context: Ctx) {
   const { noteId } = await context.params;
-  const note = await getNote(noteId);
+  const [note, processingStatus] = await Promise.all([getNote(noteId), getNoteProcessingState(noteId)]);
   if (!note) return jsonError("Note not found.", 404);
-  return jsonOk({ note });
+  return jsonOk({ note, processingStatus });
 }
 
 export async function DELETE(_request: Request, context: Ctx) {

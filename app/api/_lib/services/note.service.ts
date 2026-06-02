@@ -1,28 +1,150 @@
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
+import { enqueueNoteKnowledgeJobForNoteId } from "@/src/processing";
+
+export type NoteProcessingState =
+  | {
+      state: "pending" | "processing";
+      hasKnowledge: boolean;
+      activeJobId: string;
+      attempts: number;
+      maxAttempts: number;
+      updatedAt: Date | null;
+      lastError: string | null;
+    }
+  | {
+      state: "failed";
+      hasKnowledge: boolean;
+      activeJobId: null;
+      attempts: number;
+      maxAttempts: number;
+      updatedAt: Date | null;
+      lastError: string | null;
+    }
+  | {
+      state: "ready" | "idle";
+      hasKnowledge: boolean;
+      activeJobId: null;
+      attempts: number | null;
+      maxAttempts: number | null;
+      updatedAt: Date | null;
+      lastError: string | null;
+    };
 
 export async function createNote(input: {
   projectId: string;
   sessionId: string;
   sourceId?: string | null;
   captureId?: string | null;
+  voiceSessionId?: string | null;
+  voiceAudioId?: string | null;
   noteText: string;
   userCommentary?: string | null;
 }) {
-  return db.note.create({
-    data: {
-      projectId: input.projectId,
-      sessionId: input.sessionId,
-      sourceId: input.sourceId || null,
-      captureId: input.captureId || null,
-      noteText: input.noteText,
-      userCommentary: input.userCommentary || null,
-    },
+  return db.$transaction(async (tx) => {
+    const note = await tx.note.create({
+      data: {
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        sourceId: input.sourceId || null,
+        captureId: input.captureId || null,
+        voiceSessionId: input.voiceSessionId || null,
+        voiceAudioId: input.voiceAudioId || null,
+        noteText: input.noteText,
+        userCommentary: input.userCommentary || null,
+      },
+    });
+
+    await enqueueNoteKnowledgeJobForNoteId(note.id, tx);
+    return note;
   });
 }
 
 export async function getNote(noteId: string) {
-  return db.note.findUnique({ where: { id: noteId }, include: { source: true, capture: true } });
+  return db.note.findUnique({
+    where: { id: noteId },
+    include: {
+      source: true,
+      capture: true,
+      voiceAudio: true,
+      voiceSession: {
+        include: {
+          audio: true,
+          screenshotSession: true,
+        },
+      },
+      noteKnowledge: true,
+      linkedNoteKnowledge: true,
+    },
+  });
+}
+
+export async function getNoteProcessingState(noteId: string): Promise<NoteProcessingState> {
+  const [note, activeJob, latestHistory] = await Promise.all([
+    db.note.findUnique({
+      where: { id: noteId },
+      select: {
+        linkedNoteKnowledge: { select: { id: true, updatedAt: true } },
+        noteKnowledge: { select: { id: true, updatedAt: true } },
+      },
+    }),
+    db.processingJobOutbox.findFirst({
+      where: { noteId, jobType: "process_note_knowledge_base" },
+      orderBy: { updatedAt: "desc" },
+    }),
+    db.processingJobHistory.findFirst({
+      where: { noteId, jobType: "process_note_knowledge_base" },
+      orderBy: { updatedAt: "desc" },
+    }),
+  ]);
+
+  const knowledge = note?.linkedNoteKnowledge || note?.noteKnowledge || null;
+
+  if (activeJob) {
+    return {
+      state: activeJob.status === "processing" ? "processing" : "pending",
+      hasKnowledge: Boolean(knowledge),
+      activeJobId: activeJob.id,
+      attempts: activeJob.attempts,
+      maxAttempts: activeJob.maxAttempts,
+      updatedAt: activeJob.updatedAt,
+      lastError: activeJob.lastError,
+    };
+  }
+
+  if (latestHistory?.finalStatus === "failed" && !knowledge) {
+    return {
+      state: "failed",
+      hasKnowledge: false,
+      activeJobId: null,
+      attempts: latestHistory.attempts,
+      maxAttempts: latestHistory.maxAttempts,
+      updatedAt: latestHistory.updatedAt,
+      lastError: latestHistory.lastError,
+    };
+  }
+
+  if (knowledge) {
+    return {
+      state: "ready",
+      hasKnowledge: true,
+      activeJobId: null,
+      attempts: latestHistory?.attempts ?? null,
+      maxAttempts: latestHistory?.maxAttempts ?? null,
+      updatedAt: knowledge.updatedAt,
+      lastError: latestHistory?.finalStatus === "failed" ? latestHistory.lastError : null,
+    };
+  }
+
+  return {
+    state: "idle",
+    hasKnowledge: false,
+    activeJobId: null,
+    attempts: latestHistory?.attempts ?? null,
+    maxAttempts: latestHistory?.maxAttempts ?? null,
+    updatedAt: latestHistory?.updatedAt ?? null,
+    lastError: latestHistory?.finalStatus === "failed" ? latestHistory.lastError : null,
+  };
 }
 
 export async function listNotesBySession(sessionId: string) {
@@ -49,5 +171,26 @@ export async function updateNotePinnaLayout(noteId: string, pinnaLayout: Record<
   return db.note.update({
     where: { id: noteId },
     data: { pinnaLayout: pinnaLayout as Prisma.InputJsonValue },
+  });
+}
+
+export async function updateNoteSourceCapture(
+  noteId: string,
+  input: {
+    sourceId?: string | null;
+    captureId?: string | null;
+  },
+) {
+  return db.$transaction(async (tx) => {
+    const note = await tx.note.update({
+      where: { id: noteId },
+      data: {
+        sourceId: input.sourceId ?? undefined,
+        captureId: input.captureId ?? undefined,
+      },
+    });
+
+    await enqueueNoteKnowledgeJobForNoteId(note.id, tx);
+    return note;
   });
 }

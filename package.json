@@ -14,6 +14,9 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "workers:start": "tsx app/api/_lib/workers/index.ts",
+    "processing:start": "tsx src/processing/index.ts",
+    "processing:run-once": "tsx src/processing/index.ts --run-once",
+    "processing:validate": "tsx scripts/validate-processing-repository.ts",
     "docker:up": "./scripts/docker-up.sh",
     "docker:down": "./scripts/docker-down.sh",
     "docker:reset": "./scripts/docker-down.sh -v"
@@ -34,6 +37,7 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-hook-form": "^7.56.4",
+    "sharp": "^0.34.3",
     "tailwind-merge": "^3.3.0",
     "zod": "^3.25.36"
   },
