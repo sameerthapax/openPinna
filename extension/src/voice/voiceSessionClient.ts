@@ -45,6 +45,11 @@ export type VoiceSessionFinalizeResult = {
   noteId?: string;
 };
 
+export type VoiceSessionUpdateInput = {
+  sessionId: string;
+  sourceJson: Record<string, unknown>;
+};
+
 async function getVerifiedBackendBaseUrl() {
   const settings = await getSettings();
   const baseUrl = settings.backendApiUrl.trim().replace(/\/+$/, "");
@@ -174,4 +179,29 @@ export async function finalizeVoiceSessionRequest(sessionId: string) {
     fullAudioPath: result.fullAudioPath,
   });
   return result;
+}
+
+export async function updateVoiceSessionRequest(input: VoiceSessionUpdateInput) {
+  const baseUrl = await getVerifiedBackendBaseUrl();
+  console.info("[openPinna][voice] update session request", {
+    sessionId: input.sessionId,
+  });
+  const response = await fetch(resolveBackendRoute(baseUrl, `/api/voice-agent/sessions/${input.sessionId}`), {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      sourceJson: input.sourceJson,
+    }),
+  });
+
+  return parseJsonResponse<{
+    ok: true;
+    session: {
+      id: string;
+      noteId?: string | null;
+      status: string;
+    };
+  }>(response);
 }

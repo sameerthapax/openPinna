@@ -204,6 +204,54 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 - `npm run typecheck` passes.
 
 ## New Issue
+- Long screenshot capture triggered by double-press `M` failed on ACM PDF pages with `MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND`, so no screenshot was saved even though voice start continued.
+
+## Suspected Cause
+- Full-page capture stitches many viewport slices in sequence.
+- The background worker called `chrome.tabs.captureVisibleTab` too quickly for Chrome's per-second quota while scrolling through long viewer pages.
+
+## Files Touched
+- `extension/src/background/service-worker.ts`
+
+## Fix Attempted
+- Added pacing between screenshot slices during long capture.
+- Added a quota-aware retry path that waits and retries once when Chrome returns `MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND`.
+- Kept the screenshot task asynchronous relative to voice start so the added pacing does not block recording startup.
+
+## Final Result
+- The screenshot worker now respects Chrome capture pacing better and retries once on quota hits.
+- Voice start behavior remains non-blocking while screenshot capture runs in the background.
+
+## New Issue
+- Voice-session screenshots still failed on large papers because the extension tried to stitch all captured slices into one giant image, leading to `OffscreenCanvas` zero-size errors and memory pressure.
+
+## Suspected Cause
+- The previous screenshot path treated large-page capture as one final image artifact instead of a stream of independent viewport captures.
+- Large viewer/document pages could produce invalid or impractically large canvas dimensions.
+
+## Files Touched
+- `prisma/schema.prisma`
+- `app/api/_lib/services/voice/voice-storage.service.ts`
+- `app/api/_lib/services/voice/voice-screenshot.service.ts`
+- `app/api/voice-agent/sessions/[sessionId]/screenshots/*`
+- `extension/src/background/service-worker.ts`
+- `extension/src/content/content-script.tsx`
+- `extension/src/content/pageCaptureController.ts`
+- `extension/src/voice/screenshotSessionClient.ts`
+- `extension/src/voice/screenshotCaptureController.ts`
+
+## Fix Attempted
+- Replaced stitched giant-image capture with a dedicated screenshot-session pipeline linked to the same `voiceSessionId` and `audioId` as the audio recording.
+- Captured and uploaded each viewport as its own screenshot chunk while audio recording continued independently.
+- Added screenshot start/chunk/finalize/cancel backend routes plus new screenshot session/chunk database models.
+- Stored screenshot chunks under `./audio/{audioId}/screenshots/chunks/` and finalized them into a manifest instead of merging them into one PNG.
+- Added cancellation and scroll restoration so voice stop halts screenshot capture cleanly.
+
+## Final Result
+- Screenshot capture is now chunked and stored incrementally instead of relying on one giant `OffscreenCanvas`.
+- Audio recording remains independent from screenshot upload/finalize work.
+
+## New Issue
 - On `/notes`, session branches and note cards overlapped vertically in the hierarchy map.
 - Session ordering showed older sessions first instead of newest-first.
 
@@ -371,3 +419,140 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 
 ## Final Result
 - The extension now treats OpenAI as a backend concern, keeps project state cached locally, and only allows voice activation when backend OpenAI reachability and project availability are both satisfied.
+
+## New Issue
+- Voice-session screenshots were stored as chunk PNGs plus a manifest, but there was no merged long screenshot to open from the note UI and no linked `Capture` row for the final note.
+
+## Suspected Cause
+- Screenshot finalize stopped after chunk storage and manifest generation.
+- The screenshot pipeline never merged chunks into a durable `full.png`.
+- The voice screenshot session never created a `Capture` or patched the note once screenshot work finished.
+
+## Files Touched
+- `app/api/_lib/services/voice/voice-screenshot.service.ts`
+- `app/api/_lib/services/voice/voice-storage.service.ts`
+- `app/api/captures/[captureId]/route.ts`
+- `app/notes/[projectId]/sessions/[sessionId]/notes/[noteId]/page.tsx`
+- `components/notes/NotePinnaBoard.tsx`
+- `prisma/schema.prisma`
+- `README.md`
+
+## Fix Attempted
+- Added server-side screenshot finalize merging with `sharp` to create `./audio/{audioId}/screenshots/full.png`.
+- Stored `fullImagePath`, `sourceId`, and `captureId` on the screenshot session.
+- Created a `Capture` row from the merged PNG and patched the voice session metadata plus the final note with the new `captureId`.
+- Added `GET /api/captures/:captureId` so the note UI can open screenshot images directly.
+- Added `Open screenshot` links in the note detail UI.
+
+## Final Result
+- Screenshot finalize now produces a merged long PNG, links it into `Capture`, and exposes it from the note UI as a direct-open image route.
+
+## New Issue
+- Voice-session screenshot output sometimes contained only the final viewport chunk. The chunk directory had a single file like `68.png`, the manifest reported `chunkCount: 1`, and `full.png` only showed that last viewport near the bottom of a huge blank canvas.
+
+## Suspected Cause
+- The screenshot controller incremented `chunkIndex` and advanced scroll position even when `captureVisibleTab()` or chunk upload failed.
+- Most PDF/page screenshot attempts were failing transiently, likely due Chrome visible-tab capture pacing/quota, so the session skipped forward until one late chunk finally succeeded.
+- The backend merge code also tried to smart-place chunks using scroll metadata, which blurred container-based captures and exaggerated the “only last chunk visible” symptom when only one chunk actually existed.
+
+## Files Touched
+- `extension/src/voice/screenshotCaptureController.ts`
+- `app/api/_lib/services/voice/voice-screenshot.service.ts`
+
+## Fix Attempted
+- Added screenshot capture retry/backoff in the extension controller, with explicit handling for `MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND`-style failures.
+- Changed the loop so failed captures do not advance `chunkIndex` or scroll progress; the same viewport is retried instead of being skipped.
+- Added a repeated-failure cutoff so broken sessions fail cleanly instead of silently producing almost-empty output.
+- Simplified `full.png` generation to a raw vertical strip of stored chunk images with no resampling or smart overlap math.
+
+## Final Result
+- Screenshot sessions should now store consecutive chunk files instead of only a late survivor chunk, and `full.png` should reflect the saved chunk sequence without the previous blur from smart stitching.
+
+## New Issue
+- Voice notes could be created before the screenshot `captureId` was visible to the note creation path, so some notes ended up without a linked screenshot even though screenshot finalize completed.
+- Screenshot capture also started from the user’s current scroll position instead of the top of the page.
+- Transcription behavior needed to stop acting English-only for non-English pages.
+
+## Suspected Cause
+- Voice note creation only trusted `voiceSession.sourceJson.metadata.extensionScreenshot`, which can be stale if screenshot finalize finishes just before note creation reads the session.
+- The screenshot controller initialized its first capture at the current `scrollY`.
+- The transcription request sent no language hint at all.
+
+## Files Touched
+- `extension/src/voice/screenshotCaptureController.ts`
+- `extension/src/lib/source-metadata.ts`
+- `app/api/_lib/services/voice/voice-session.service.ts`
+- `app/api/_lib/services/voice/voice-transcription.service.ts`
+
+## Fix Attempted
+- Changed screenshot capture to always start at scroll position `0` and restore the original position afterward.
+- Made screenshot stop wait for the background screenshot task to finish finalizing before voice finalize proceeds.
+- Updated voice note creation to read fresh `sourceId` and `captureId` directly from `voice_screenshot_sessions`, with `sourceJson` only as fallback.
+- Added page language metadata from the content page and passed a normalized language hint into the transcription request when available.
+
+## Final Result
+- Screenshot capture now prioritizes the top of the page, note creation should pick up the screenshot `captureId` more reliably on first write, and transcription can include a non-English language hint instead of behaving like English-only capture.
+
+## New Issue
+- PDF pages still followed the HTML screenshot/page-context path, so OpenPinna tried to measure, scroll, and chunk browser PDF tabs instead of storing the PDF file itself as one artifact.
+- ResearchGate-style PDFs were especially brittle because backend or external fetches could return `403` even when the user was already viewing the file in the browser.
+
+## Suspected Cause
+- The extension had no resilient PDF-tab detector and no extension-side PDF artifact fetch flow.
+- The backend capture model only assumed image-style uploads and stored them through screenshot-oriented fields.
+- Voice screenshot capture started page measurement immediately, with no early branch for PDF documents.
+
+## Files Touched
+- `prisma/schema.prisma`
+- `app/api/_lib/storage.ts`
+- `app/api/_lib/services/capture.service.ts`
+- `app/api/_lib/services/voice/voice-screenshot.service.ts`
+- `app/api/_lib/validation.ts`
+- `app/api/sources/[sourceId]/captures/route.ts`
+- `app/api/captures/[captureId]/route.ts`
+- `app/api/voice-agent/sessions/[sessionId]/screenshots/pdf/route.ts`
+- `app/api/projects/[projectId]/sessions/[sessionId]/sources/[sourceId]/screenshots/route.ts`
+- `extension/src/lib/pdf.ts`
+- `extension/src/lib/pdf-capture.ts`
+- `extension/src/lib/source-metadata.ts`
+- `extension/src/lib/types.ts`
+- `extension/src/background/service-worker.ts`
+- `extension/src/voice/screenshotCaptureController.ts`
+- `extension/src/voice/screenshotSessionClient.ts`
+- `app/notes/[projectId]/sessions/[sessionId]/notes/[noteId]/page.tsx`
+- `components/notes/NotePinnaBoard.tsx`
+
+## Fix Attempted
+- Added PDF detection helpers for direct `.pdf` URLs, query-string PDFs, and browser PDF viewer wrapper URLs.
+- Added an extension-side PDF fetch path with `credentials: "include"`, `%PDF` signature validation, filename derivation, and explicit `[openPinna][pdf]` logging.
+- Short-circuited the voice screenshot controller before page measurement when the active tab is a PDF.
+- Added backend PDF artifact ingestion so captures can store `application/pdf` alongside image formats, with typed capture metadata such as `artifactType`, `captureMode`, `mimeType`, `storagePath`, `originalUrl`, and `fileName`.
+- Updated manual save so PDF tabs upload a PDF artifact and link it to the created note instead of relying on selected text.
+- Updated note UI links so PDF artifacts are labeled as PDFs instead of screenshots.
+
+## Final Result
+- Normal HTML pages keep the existing screenshot/page-context behavior.
+- PDF pages now use an extension-side fetch/upload flow and store a single linked PDF artifact without chunking, OCR, selected text capture, or scroll-based screenshot work.
+- If the browser cannot fetch the PDF directly, the extension returns a clear manual-upload message instead of falling back to webpage screenshots.
+
+## New Issue
+- Voice and PDF capture could create duplicate artifacts for the same URL when the same page was captured more than once in the same session.
+- This caused unnecessary screenshot/PDF work and left later notes pointing at newly-created duplicate captures instead of reusing the original artifact.
+
+## Suspected Cause
+- The extension always started the screenshot/PDF artifact path without first checking whether the current session already had a matching source URL or PDF URL with a stored capture.
+- Reuse logic only existed indirectly through `sourceJson.metadata.extensionScreenshot`, so first-party backend captures were not being queried before recapture.
+
+## Files Touched
+- `app/api/_lib/services/capture.service.ts`
+- `app/api/projects/[projectId]/sessions/[sessionId]/captures/by-url/route.ts`
+- `extension/src/background/service-worker.ts`
+
+## Fix Attempted
+- Added a backend lookup that finds the latest capture for a matching source `url` or `pdfUrl` within the current project session.
+- Added a background helper that resolves today's session, checks for an existing capture by URL, and reuses it when present.
+- Short-circuited voice screenshot startup when an existing capture already exists, and patched the voice session `sourceJson` with the reused `sourceId` and `captureId`.
+- Reused an existing PDF capture during manual PDF note save instead of uploading a duplicate artifact.
+
+## Final Result
+- OpenPinna now skips redundant screenshot/PDF capture for URLs that already have a stored artifact in today's session and links the existing `captureId` into the new note instead.

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { captureArtifactTypes, captureModes } from "@/app/api/_lib/services/capture.service";
 
 export const uuidSchema = z.string().uuid();
 
@@ -24,11 +25,23 @@ export const createSourceUrlSchema = z.object({
 
 export const createCaptureSchema = z.object({
   sessionId: uuidSchema,
+  artifactType: z.enum(captureArtifactTypes).optional().nullable(),
+  captureMode: z.enum(captureModes).optional().nullable(),
+  mimeType: z.string().trim().optional().nullable(),
+  originalUrl: z.string().trim().url().optional().nullable(),
+  title: z.string().trim().optional().nullable(),
+  fileName: z.string().trim().optional().nullable(),
+  source: z.string().trim().optional().nullable(),
   selectedText: z.string().optional().nullable(),
   surroundingText: z.string().optional().nullable(),
   pageNumber: z.coerce.number().int().optional().nullable(),
   xPosition: z.coerce.number().optional().nullable(),
   yPosition: z.coerce.number().optional().nullable(),
+  caption: z.string().optional().nullable(),
+});
+
+export const createScreenshotCaptureSchema = z.object({
+  selectedText: z.string().optional().nullable(),
   caption: z.string().optional().nullable(),
 });
 
@@ -51,6 +64,24 @@ export const createVoiceSessionSchema = z.object({
   startedAt: z.string().datetime().optional().nullable(),
 });
 
+export const updateVoiceSessionSchema = z.object({
+  sourceJson: z.record(z.unknown()).optional(),
+});
+
+export const createVoiceScreenshotSessionSchema = z.object({
+  audioId: uuidSchema.optional().nullable(),
+  projectId: uuidSchema.optional().nullable(),
+  pinnaId: z.string().trim().optional().nullable(),
+  pageUrl: z.string().trim().url().optional().nullable(),
+  pageTitle: z.string().trim().optional().nullable(),
+  sourceJson: z.unknown().optional().nullable(),
+  selectedText: z.string().trim().optional().nullable(),
+  documentHeight: z.coerce.number().int().min(0).optional().nullable(),
+  viewportWidth: z.coerce.number().int().min(0).optional().nullable(),
+  viewportHeight: z.coerce.number().int().min(0).optional().nullable(),
+  devicePixelRatio: z.coerce.number().min(0).optional().nullable(),
+});
+
 export const voiceChunkAllowedMimeTypes = [
   "audio/webm",
   "audio/webm;codecs=opus",
@@ -69,6 +100,28 @@ export const voiceChunkMetadataSchema = z.object({
   pageUrl: z.string().trim().url().optional().nullable(),
   pageTitle: z.string().trim().optional().nullable(),
   startedAt: z.string().datetime().optional().nullable(),
+});
+
+export const voiceScreenshotChunkAllowedMimeTypes = ["image/png"] as const;
+
+export const voiceScreenshotChunkMetadataSchema = z.object({
+  screenshotId: uuidSchema,
+  voiceSessionId: uuidSchema,
+  audioId: uuidSchema.optional().nullable(),
+  chunkId: z.string().uuid(),
+  chunkIndex: z.coerce.number().int().min(0),
+  pageUrl: z.string().trim().url().optional().nullable(),
+  pageTitle: z.string().trim().optional().nullable(),
+  scrollY: z.coerce.number().int().min(0),
+  viewportWidth: z.coerce.number().int().min(0),
+  viewportHeight: z.coerce.number().int().min(0),
+  documentHeight: z.coerce.number().int().min(0),
+  devicePixelRatio: z.coerce.number().min(0),
+  capturedAt: z.string().datetime(),
+  projectId: uuidSchema.optional().nullable(),
+  pinnaId: z.string().trim().optional().nullable(),
+  sourceJson: z.string().optional().nullable(),
+  selectedText: z.string().optional().nullable(),
 });
 
 export const createThreadSchema = z.object({

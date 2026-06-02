@@ -8,6 +8,18 @@ function safeSegment(value: string) {
 }
 
 function extensionFromMimeType(mimeType: string) {
+  if (mimeType.includes("png")) {
+    return "png";
+  }
+
+  if (mimeType.includes("jpeg") || mimeType.includes("jpg")) {
+    return "jpg";
+  }
+
+  if (mimeType.includes("webp")) {
+    return "webp";
+  }
+
   if (mimeType.includes("webm")) {
     return "webm";
   }
@@ -41,8 +53,20 @@ export function getVoiceChunkDir(audioId: string) {
   return assertInsideVoiceRoot(path.join(getVoiceAudioDir(audioId), "chunks"));
 }
 
+export function getVoiceScreenshotDir(ownerId: string) {
+  return assertInsideVoiceRoot(path.join(getVoiceAudioDir(ownerId), "screenshots"));
+}
+
+export function getVoiceScreenshotChunkDir(ownerId: string) {
+  return assertInsideVoiceRoot(path.join(getVoiceScreenshotDir(ownerId), "chunks"));
+}
+
 export async function ensureVoiceAudioDirs(audioId: string) {
   await mkdir(getVoiceChunkDir(audioId), { recursive: true });
+}
+
+export async function ensureVoiceScreenshotDirs(ownerId: string) {
+  await mkdir(getVoiceScreenshotChunkDir(ownerId), { recursive: true });
 }
 
 export function buildChunkFilename(chunkIndex: number, mimeType: string) {
@@ -55,6 +79,20 @@ export function buildChunkPath(audioId: string, chunkIndex: number, mimeType: st
 
 export function buildFullAudioPath(audioId: string, mimeType: string) {
   return assertInsideVoiceRoot(path.join(getVoiceAudioDir(audioId), `full.${extensionFromMimeType(mimeType)}`));
+}
+
+export function buildScreenshotChunkPath(ownerId: string, chunkIndex: number, mimeType: string) {
+  return assertInsideVoiceRoot(
+    path.join(getVoiceScreenshotChunkDir(ownerId), `${chunkIndex}.${extensionFromMimeType(mimeType)}`),
+  );
+}
+
+export function buildScreenshotManifestPath(ownerId: string) {
+  return assertInsideVoiceRoot(path.join(getVoiceScreenshotDir(ownerId), "manifest.json"));
+}
+
+export function buildScreenshotFullImagePath(ownerId: string) {
+  return assertInsideVoiceRoot(path.join(getVoiceScreenshotDir(ownerId), "full.png"));
 }
 
 export function toVoiceRelativePath(absolutePath: string) {
@@ -70,6 +108,57 @@ export async function writeVoiceChunkFile(input: {
   await ensureVoiceAudioDirs(input.audioId);
 
   const filePath = buildChunkPath(input.audioId, input.chunkIndex, input.mimeType);
+  await writeFile(filePath, input.bytes);
+  const fileStats = await stat(filePath);
+
+  return {
+    filePath,
+    relativePath: toVoiceRelativePath(filePath),
+    sizeBytes: fileStats.size,
+  };
+}
+
+export async function writeVoiceScreenshotChunkFile(input: {
+  ownerId: string;
+  chunkIndex: number;
+  mimeType: string;
+  bytes: Buffer;
+}) {
+  await ensureVoiceScreenshotDirs(input.ownerId);
+
+  const filePath = buildScreenshotChunkPath(input.ownerId, input.chunkIndex, input.mimeType);
+  await writeFile(filePath, input.bytes);
+  const fileStats = await stat(filePath);
+
+  return {
+    filePath,
+    relativePath: toVoiceRelativePath(filePath),
+    sizeBytes: fileStats.size,
+  };
+}
+
+export async function writeVoiceScreenshotManifestFile(input: {
+  ownerId: string;
+  manifest: Record<string, unknown>;
+}) {
+  await ensureVoiceScreenshotDirs(input.ownerId);
+
+  const filePath = buildScreenshotManifestPath(input.ownerId);
+  await writeFile(filePath, JSON.stringify(input.manifest, null, 2), "utf8");
+
+  return {
+    filePath,
+    relativePath: toVoiceRelativePath(filePath),
+  };
+}
+
+export async function writeVoiceScreenshotFullImageFile(input: {
+  ownerId: string;
+  bytes: Buffer;
+}) {
+  await ensureVoiceScreenshotDirs(input.ownerId);
+
+  const filePath = buildScreenshotFullImagePath(input.ownerId);
   await writeFile(filePath, input.bytes);
   const fileStats = await stat(filePath);
 

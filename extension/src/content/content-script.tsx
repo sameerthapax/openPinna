@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { OVERLAY_ROOT_ID } from "../lib/constants";
 import { getSettings, subscribeToSettings, updateSettings } from "../lib/chrome-storage";
 import { extractSourceMetadata } from "../lib/source-metadata";
+import { measurePageCapture, scrollPageCaptureTarget } from "./pageCaptureController";
 import { OverlayApp } from "./OverlayApp";
 import type { OpenPinnaBackgroundMessage, OpenPinnaSettings } from "../lib/types";
 
@@ -263,8 +264,72 @@ if (canInject && !existingRoot) {
   };
 
   window.addEventListener("keydown", onKeyDown, true);
-  chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage) => {
+  chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, _sender, sendResponse) => {
+    if (message.type === "SCREENSHOT_CAPTURE_MEASURE_PAGE") {
+      sendResponse({
+        ok: true,
+        metrics: measurePageCapture(),
+      });
+      return false;
+    }
+
+    if (message.type === "SCREENSHOT_CAPTURE_SCROLL_TO") {
+      void scrollPageCaptureTarget(message.targetId, message.scrollY)
+        .then((actualScrollY) => {
+          sendResponse({ ok: true, scrollY: actualScrollY });
+        })
+        .catch((error) => {
+          sendResponse({
+            ok: false,
+            message: error instanceof Error ? error.message : "Could not scroll screenshot target.",
+          });
+        });
+      return true;
+    }
+
+    if (message.type === "SCREENSHOT_CAPTURE_RESTORE_SCROLL") {
+      void scrollPageCaptureTarget(message.targetId, message.scrollY, message.left)
+        .then(() => {
+          sendResponse({ ok: true });
+        })
+        .catch((error) => {
+          sendResponse({
+            ok: false,
+            message: error instanceof Error ? error.message : "Could not restore screenshot target.",
+          });
+        });
+      return true;
+    }
+
     if (message.type === "VOICE_STATUS_EVENT") {
+      dispatchVoiceStatus(message.message);
+    }
+
+    if (message.type === "SCREENSHOT_SESSION_START_REQUESTED") {
+      dispatchVoiceStatus("Starting screenshot capture…");
+    }
+
+    if (message.type === "SCREENSHOT_SESSION_STARTED") {
+      dispatchVoiceStatus("Capturing screenshot…");
+    }
+
+    if (message.type === "SCREENSHOT_CHUNK_UPLOADED") {
+      dispatchVoiceStatus(`Saved screenshot chunk ${message.metadata.chunkIndex + 1}`);
+    }
+
+    if (message.type === "SCREENSHOT_CHUNK_UPLOAD_FAILED") {
+      dispatchVoiceStatus(`Screenshot chunk ${message.metadata.chunkIndex + 1} failed`);
+    }
+
+    if (message.type === "SCREENSHOT_SESSION_FINALIZED") {
+      dispatchVoiceStatus(`Saved ${message.chunkCount} screenshot chunks`);
+    }
+
+    if (message.type === "SCREENSHOT_SESSION_CANCELLED") {
+      dispatchVoiceStatus("Screenshot capture stopped");
+    }
+
+    if (message.type === "SCREENSHOT_SESSION_ERROR") {
       dispatchVoiceStatus(message.message);
     }
 
@@ -290,6 +355,8 @@ if (canInject && !existingRoot) {
     if (message.type === "VOICE_SESSION_FINALIZED") {
       dispatchVoiceStatus("Saved voice note");
     }
+
+    return false;
   });
   window.addEventListener("beforeunload", () => {
     unsubscribe();

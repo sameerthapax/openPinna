@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { FileTextIcon, ImageIcon } from "@radix-ui/react-icons";
 import { db } from "@/lib/db";
 import { NotePinnaBoard } from "@/components/notes/NotePinnaBoard";
 
@@ -39,6 +40,11 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
         .filter(Boolean)
     : [];
   const voiceAudioUrl = note.voiceAudio?.fullAudioPath ? `/api/voice-audios/${note.voiceAudio.id}` : null;
+  const captureUrl = note.capture ? `/api/captures/${note.capture.id}` : null;
+  const captureType = note.capture?.artifactType || "screenshot";
+  const captureLabel = captureType === "pdf" ? "Open captured PDF" : "Open screenshot";
+  const captureBadgeLabel = captureType === "pdf" ? "PDF captured" : "Screenshot captured";
+  const CaptureIcon = captureType === "pdf" ? FileTextIcon : ImageIcon;
 
   return (
     <div className="space-y-6 pb-16">
@@ -80,6 +86,8 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
                     durationMs: note.voiceAudio.durationMs || null,
                     pageTitle: note.voiceSession?.pageTitle || null,
                     pageUrl: note.voiceSession?.pageUrl || null,
+                    captureUrl,
+                    captureLabel,
                     startedAt: note.voiceSession?.startedAt?.toISOString() || null,
                   }
                 : null
@@ -113,8 +121,27 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
             <div className="mt-4 space-y-4 text-sm leading-7 text-[var(--muted-foreground)]">
               <p>
                 <span className="text-[var(--foreground)]">SS:</span>{" "}
-                {note.capture?.id ? note.capture.id.slice(0, 12) : "No screenshot capture"}
+                {note.capture?.id ? note.capture.id.slice(0, 12) : "No capture artifact"}
               </p>
+              {captureUrl ? (
+                <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface-soft)] p-3">
+                  <div className="flex items-center gap-2 text-[var(--foreground)]">
+                    <CaptureIcon className="h-4 w-4" />
+                    <span className="text-sm font-medium">{captureBadgeLabel}</span>
+                  </div>
+                  <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+                    {note.capture?.fileName || note.capture?.title || noteTitle}
+                  </p>
+                  <a
+                    href={captureUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex text-sm underline decoration-[var(--border)] underline-offset-4"
+                  >
+                    {captureLabel}
+                  </a>
+                </div>
+              ) : null}
               <p>
                 <span className="text-[var(--foreground)]">Title:</span> {noteTitle}
               </p>

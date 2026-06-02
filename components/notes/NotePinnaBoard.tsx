@@ -47,6 +47,8 @@ type VoiceRecording = {
   durationMs: number | null;
   pageTitle: string | null;
   pageUrl: string | null;
+  captureUrl: string | null;
+  captureLabel: string | null;
   startedAt: string | null;
 };
 
@@ -754,6 +756,16 @@ export function NotePinnaBoard({
                               className="underline decoration-[var(--border)] underline-offset-4"
                             >
                               Open captured page
+                            </a>
+                          ) : null}
+                          {voiceRecording.captureUrl ? (
+                            <a
+                              href={voiceRecording.captureUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="underline decoration-[var(--border)] underline-offset-4"
+                            >
+                              {voiceRecording.captureLabel || "Open capture"}
                             </a>
                           ) : null}
                         </div>

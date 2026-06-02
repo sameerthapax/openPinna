@@ -62,6 +62,7 @@ Update `DATABASE_URL` in `.env` if your local PostgreSQL credentials differ.
 | `DATABASE_URL` | PostgreSQL connection string used by Prisma |
 | `REDIS_URL` | Redis connection used by BullMQ workers |
 | `UPLOAD_DIR` | Local upload root for source/capture files |
+| `SCREENSHOT_UPLOAD_DIR` | Local screenshot root, defaults to `./screenshots` |
 | `VOICE_UPLOAD_DIR` | Local voice audio root, defaults to `./audio` |
 | `OPENAI_API_KEY` | Required for backend voice transcription |
 | `OPENAI_TRANSCRIPTION_MODEL` | Optional transcription model override |
@@ -181,6 +182,33 @@ Voice audio storage layout:
   full.webm
 ```
 
+Screenshot capture flow:
+
+1. Double-press `M`.
+2. Background starts the voice session and audio recording immediately.
+3. In parallel, the extension starts a screenshot session for the same `voiceSessionId` and `audioId`.
+4. The content script measures the current page and scroll target.
+5. The background captures visible viewport PNG chunks, uploads each chunk immediately, and scrolls downward until the page ends or the chunk cap is reached.
+6. Backend stores screenshot chunks under `./audio/{audioId}/screenshots/chunks/`.
+7. When screenshot capture stops, backend merges the stored chunks into `./audio/{audioId}/screenshots/full.png`, writes `manifest.json`, and creates a linked `Capture`.
+
+Screenshot storage layout:
+
+```text
+./audio/{audioId}/
+  chunks/
+    0.webm
+    1.webm
+  screenshots/
+    chunks/
+      0.png
+      1.png
+      2.png
+    full.png
+    manifest.json
+  full.webm
+```
+
 Voice API routes:
 
 - `GET /health`
@@ -188,12 +216,19 @@ Voice API routes:
 - `GET /api/voice-agent/sessions/:sessionId`
 - `POST /api/voice-agent/sessions/:sessionId/chunks`
 - `POST /api/voice-agent/sessions/:sessionId/finalize`
+- `POST /api/voice-agent/sessions/:sessionId/screenshots/start`
+- `POST /api/voice-agent/sessions/:sessionId/screenshots/chunks`
+- `POST /api/voice-agent/sessions/:sessionId/screenshots/finalize`
+- `POST /api/voice-agent/sessions/:sessionId/screenshots/cancel`
+- `GET /api/captures/:captureId`
 
 Voice database tables:
 
 - `voice_audio_sessions`
 - `voice_audios`
 - `voice_audio_chunks`
+- `voice_screenshot_sessions`
+- `voice_screenshot_chunks`
 - `notes.voice_session_id`
 - `notes.voice_audio_id`
 
@@ -215,6 +250,21 @@ Voice recording test checklist:
 14. Confirm `./audio/{audioId}/full.webm` exists.
 15. Confirm chunk transcripts are stored, final transcript is stored, and the final note `userCommentary` equals the final transcript.
 16. Confirm browser mic indicator disappears and the offscreen document closes.
+
+Screenshot chunk capture test checklist:
+
+1. Open a long article or paper page.
+2. Double-press `M`.
+3. Confirm voice recording starts immediately.
+4. Confirm screenshot session starts in parallel.
+5. Confirm screenshot files appear under `./audio/{audioId}/screenshots/chunks/0.png`, `1.png`, `2.png`.
+6. Let the page capture at least 10 chunks.
+7. Double-press `M` again.
+8. Confirm `./audio/{audioId}/screenshots/full.png` and `manifest.json` exist.
+9. Confirm the note has a screenshot link and clicking it opens the merged PNG.
+10. Confirm the original page scroll position is restored.
+11. Confirm audio recording still finalizes if screenshot capture partially fails.
+12. Test a 50-page paper and confirm capture stops by page end or the `75` chunk cap.
 
 Extension development commands:
 

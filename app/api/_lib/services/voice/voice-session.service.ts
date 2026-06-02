@@ -1,6 +1,7 @@
-import { createNote } from "@/app/api/_lib/services/note.service";
+import { createNote, updateNoteSourceCapture } from "@/app/api/_lib/services/note.service";
 import { getOrCreateTodaySession } from "@/app/api/_lib/services/session.service";
-import { createSourceFromUrl } from "@/app/api/_lib/services/source.service";
+import { getCapture } from "@/app/api/_lib/services/capture.service";
+import { createSourceFromUrl, getSource } from "@/app/api/_lib/services/source.service";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { combineAudioChunks } from "./voice-combine.service";
@@ -33,6 +34,70 @@ function parseSourceJson(value: unknown) {
   }
 
   return { raw: value };
+}
+
+function readExtensionScreenshotRefs(sourceJson: Record<string, unknown> | null) {
+  const metadata =
+    sourceJson?.metadata && typeof sourceJson.metadata === "object" && !Array.isArray(sourceJson.metadata)
+      ? (sourceJson.metadata as Record<string, unknown>)
+      : null;
+  const extensionScreenshot =
+    metadata?.extensionScreenshot &&
+    typeof metadata.extensionScreenshot === "object" &&
+    !Array.isArray(metadata.extensionScreenshot)
+      ? (metadata.extensionScreenshot as Record<string, unknown>)
+      : null;
+
+  return {
+    sourceId:
+      extensionScreenshot && typeof extensionScreenshot.sourceId === "string"
+        ? extensionScreenshot.sourceId
+        : null,
+    captureId:
+      extensionScreenshot && typeof extensionScreenshot.captureId === "string"
+        ? extensionScreenshot.captureId
+        : null,
+  };
+}
+
+function readTranscriptionLanguageHint(sourceJson: Record<string, unknown> | null) {
+  const metadata =
+    sourceJson?.metadata && typeof sourceJson.metadata === "object" && !Array.isArray(sourceJson.metadata)
+      ? (sourceJson.metadata as Record<string, unknown>)
+      : null;
+
+  const candidates = [
+    metadata?.pageLanguage,
+    metadata?.language,
+    metadata?.meta && typeof metadata.meta === "object" && !Array.isArray(metadata.meta)
+      ? (metadata.meta as Record<string, unknown>).documentLanguage
+      : null,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+}
+
+async function getFreshScreenshotRefs(sessionId: string) {
+  const screenshotSession = await db.voiceScreenshotSession.findUnique({
+    where: { voiceSessionId: sessionId },
+    select: {
+      sourceId: true,
+      captureId: true,
+      status: true,
+    },
+  });
+
+  return {
+    sourceId: screenshotSession?.sourceId || null,
+    captureId: screenshotSession?.captureId || null,
+    status: screenshotSession?.status || null,
+  };
 }
 
 function buildFinalTranscript(chunks: Array<{ chunkIndex: number; transcript: string | null; transcriptionStatus: string }>) {
@@ -113,6 +178,76 @@ export async function getVoiceSession(sessionId: string) {
       },
     },
   });
+}
+
+async function syncScreenshotRefsToExistingNote(input: {
+  noteId?: string | null;
+  sourceId?: string | null;
+  captureId?: string | null;
+}) {
+  if (!input.noteId || !input.sourceId) {
+    return;
+  }
+
+  const source = await getSource(input.sourceId);
+
+  if (!source) {
+    return;
+  }
+
+  if (input.captureId) {
+    const capture = await getCapture(input.captureId);
+
+    if (!capture || capture.sourceId !== source.id) {
+      return;
+    }
+  }
+
+  await updateNoteSourceCapture(input.noteId, {
+    sourceId: source.id,
+    captureId: input.captureId || null,
+  });
+}
+
+export async function updateVoiceSession(input: {
+  sessionId: string;
+  sourceJson?: Record<string, unknown>;
+}) {
+  const existing = await db.voiceAudioSession.findUnique({
+    where: { id: input.sessionId },
+    include: {
+      note: true,
+    },
+  });
+
+  if (!existing) {
+    throw new Error("VOICE_SESSION_NOT_FOUND");
+  }
+
+  const nextSourceJson = input.sourceJson ?? parseSourceJson(existing.sourceJson) ?? undefined;
+  const updated = await db.voiceAudioSession.update({
+    where: { id: input.sessionId },
+    data: input.sourceJson
+      ? {
+          sourceJson: asJsonValue(input.sourceJson),
+        }
+      : {},
+    include: {
+      note: true,
+    },
+  });
+
+  const screenshotRefs = readExtensionScreenshotRefs(
+    nextSourceJson ? (nextSourceJson as Record<string, unknown>) : parseSourceJson(updated.sourceJson),
+  );
+
+  await syncScreenshotRefsToExistingNote({
+    noteId: updated.noteId,
+    sourceId: screenshotRefs.sourceId,
+    captureId: screenshotRefs.captureId,
+  });
+
+  return updated;
 }
 
 export async function storeVoiceChunkAndTranscribe(input: {
@@ -266,7 +401,10 @@ export async function storeVoiceChunkAndTranscribe(input: {
       data: { transcriptionStatus: "transcribing" },
     });
 
-    const transcript = await transcribeAudioFile(stored.filePath);
+    const transcript = await transcribeAudioFile(
+      stored.filePath,
+      readTranscriptionLanguageHint(parseSourceJson(input.sourceJson ?? session.sourceJson)),
+    );
 
     chunk = await db.voiceAudioChunk.update({
       where: { id: chunk.id },
@@ -338,6 +476,14 @@ async function createVoiceBackedNote(session: NonNullable<Awaited<ReturnType<typ
 
   const daySessionResult = await getOrCreateTodaySession(session.projectId);
   const sourceJson = parseSourceJson(session.sourceJson);
+  const persistedScreenshotRefs = await getFreshScreenshotRefs(session.id);
+  const sourceJsonScreenshotRefs = readExtensionScreenshotRefs(sourceJson);
+  const screenshotRefs = {
+    sourceId: persistedScreenshotRefs.sourceId || sourceJsonScreenshotRefs.sourceId,
+    captureId: persistedScreenshotRefs.captureId || sourceJsonScreenshotRefs.captureId,
+  };
+  let source = null;
+  let captureId: string | null = null;
   const sourcePayload = {
     sourceType: (sourceJson?.sourceType as string | undefined) || "web",
     title: (sourceJson?.title as string | undefined) || session.pageTitle || "Voice capture",
@@ -363,9 +509,33 @@ async function createVoiceBackedNote(session: NonNullable<Awaited<ReturnType<typ
     },
   };
 
-  const source = session.pageUrl
-    ? await createSourceFromUrl(session.projectId, daySessionResult.session.id, sourcePayload)
-    : null;
+  if (screenshotRefs.sourceId) {
+    const existingSource = await getSource(screenshotRefs.sourceId);
+
+    if (
+      existingSource &&
+      existingSource.projectId === session.projectId &&
+      existingSource.sessionId === daySessionResult.session.id
+    ) {
+      source = existingSource;
+    }
+  }
+
+  if (screenshotRefs.captureId) {
+    const existingCapture = await getCapture(screenshotRefs.captureId);
+
+    if (
+      existingCapture &&
+      existingCapture.sessionId === daySessionResult.session.id &&
+      (!source || existingCapture.sourceId === source.id)
+    ) {
+      captureId = existingCapture.id;
+    }
+  }
+
+  if (!source && session.pageUrl) {
+    source = await createSourceFromUrl(session.projectId, daySessionResult.session.id, sourcePayload);
+  }
 
   console.info("[openPinna][voice] note source resolved", {
     sessionId: session.id,
@@ -379,6 +549,7 @@ async function createVoiceBackedNote(session: NonNullable<Awaited<ReturnType<typ
     projectId: session.projectId,
     sessionId: daySessionResult.session.id,
     sourceId: source?.id || null,
+    captureId,
     voiceSessionId: session.id,
     voiceAudioId: session.audio.id,
     noteText:

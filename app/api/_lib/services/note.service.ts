@@ -55,3 +55,19 @@ export async function updateNotePinnaLayout(noteId: string, pinnaLayout: Record<
     data: { pinnaLayout: pinnaLayout as Prisma.InputJsonValue },
   });
 }
+
+export async function updateNoteSourceCapture(
+  noteId: string,
+  input: {
+    sourceId?: string | null;
+    captureId?: string | null;
+  },
+) {
+  return db.note.update({
+    where: { id: noteId },
+    data: {
+      sourceId: input.sourceId ?? undefined,
+      captureId: input.captureId ?? undefined,
+    },
+  });
+}

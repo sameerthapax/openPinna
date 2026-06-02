@@ -24,6 +24,7 @@ model Project {
   sources          Source[]
   notes            Note[]
   voiceSessions    VoiceAudioSession[]
+  screenshotSessions VoiceScreenshotSession[]
   chatThreads      ChatThread[]
   knowledgeEvents  KnowledgeEvent[]
   knowledgeNodes   KnowledgeNode[]
@@ -93,6 +94,14 @@ model Capture {
   source          Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   session         Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   imagePath       String   @map("image_path")
+  storagePath     String?  @map("storage_path") @db.Text
+  artifactType    String   @default("screenshot") @map("artifact_type")
+  captureMode     String   @default("viewport-screenshot") @map("capture_mode")
+  mimeType        String?  @map("mime_type")
+  originalUrl     String?  @map("original_url") @db.Text
+  title           String?
+  fileName        String?  @map("file_name")
+  sourceLabel     String?  @default("browser-extension") @map("source")
   pageNumber      Int?     @map("page_number")
   xPosition       Decimal? @map("x_position") @db.Decimal
   yPosition       Decimal? @map("y_position") @db.Decimal
@@ -159,6 +168,7 @@ model VoiceAudioSession {
   note         Note?             @relation("VoiceSessionFinalNote", fields: [noteId], references: [id], onDelete: SetNull)
   audio        VoiceAudio?
   chunks       VoiceAudioChunk[]
+  screenshotSession VoiceScreenshotSession?
   notes        Note[]            @relation("VoiceSessionNotes")
 
   @@index([projectId])
@@ -178,6 +188,8 @@ model VoiceAudio {
   updatedAt       DateTime          @default(now()) @map("updated_at") @db.Timestamptz(6)
   session         VoiceAudioSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   chunks          VoiceAudioChunk[]
+  screenshotChunks VoiceScreenshotChunk[]
+  screenshotSessions VoiceScreenshotSession[]
   notes           Note[]
 
   @@map("voice_audios")
@@ -206,6 +218,73 @@ model VoiceAudioChunk {
   @@index([sessionId, chunkIndex])
   @@index([audioId, chunkIndex])
   @@map("voice_audio_chunks")
+}
+
+model VoiceScreenshotSession {
+  id               String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  voiceSessionId   String            @unique @map("voice_session_id") @db.Uuid
+  audioId          String?           @map("audio_id") @db.Uuid
+  projectId        String?           @map("project_id") @db.Uuid
+  sourceId         String?           @map("source_id") @db.Uuid
+  captureId        String?           @map("capture_id") @db.Uuid
+  pinnaId          String?           @map("pinna_id")
+  pageUrl          String?           @map("page_url") @db.Text
+  pageTitle        String?           @map("page_title") @db.Text
+  sourceJson       Json?             @map("source_json")
+  selectedText     String?           @map("selected_text") @db.Text
+  documentHeight   Int?              @map("document_height")
+  viewportWidth    Int?              @map("viewport_width")
+  viewportHeight   Int?              @map("viewport_height")
+  devicePixelRatio Float?            @map("device_pixel_ratio")
+  status           String            @default("created")
+  manifestPath     String?           @map("manifest_path") @db.Text
+  fullImagePath    String?           @map("full_image_path") @db.Text
+  errorMessage     String?           @map("error_message") @db.Text
+  startedAt        DateTime          @default(now()) @map("started_at") @db.Timestamptz(6)
+  completedAt      DateTime?         @map("completed_at") @db.Timestamptz(6)
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @default(now()) @map("updated_at") @db.Timestamptz(6)
+  voiceSession     VoiceAudioSession @relation(fields: [voiceSessionId], references: [id], onDelete: Cascade)
+  audio            VoiceAudio?       @relation(fields: [audioId], references: [id], onDelete: SetNull)
+  project          Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  chunks           VoiceScreenshotChunk[]
+
+  @@index([audioId])
+  @@index([sourceId])
+  @@index([captureId])
+  @@index([projectId])
+  @@index([pinnaId])
+  @@map("voice_screenshot_sessions")
+}
+
+model VoiceScreenshotChunk {
+  id                  String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  screenshotSessionId String                @map("screenshot_session_id") @db.Uuid
+  voiceSessionId      String                @map("voice_session_id") @db.Uuid
+  audioId             String?               @map("audio_id") @db.Uuid
+  chunkId             String                @unique @map("chunk_id")
+  chunkIndex          Int                   @map("chunk_index")
+  filePath            String                @map("file_path") @db.Text
+  mimeType            String?               @map("mime_type")
+  sizeBytes           Int?                  @map("size_bytes")
+  pageUrl             String?               @map("page_url") @db.Text
+  pageTitle           String?               @map("page_title") @db.Text
+  scrollY             Int?                  @map("scroll_y")
+  viewportWidth       Int?                  @map("viewport_width")
+  viewportHeight      Int?                  @map("viewport_height")
+  documentHeight      Int?                  @map("document_height")
+  devicePixelRatio    Float?                @map("device_pixel_ratio")
+  capturedAt          DateTime?             @map("captured_at") @db.Timestamptz(6)
+  status              String                @default("stored")
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
+  screenshotSession   VoiceScreenshotSession @relation(fields: [screenshotSessionId], references: [id], onDelete: Cascade)
+  audio               VoiceAudio?           @relation(fields: [audioId], references: [id], onDelete: SetNull)
+
+  @@unique([screenshotSessionId, chunkIndex])
+  @@index([voiceSessionId, chunkIndex])
+  @@index([audioId, chunkIndex])
+  @@map("voice_screenshot_chunks")
 }
 
 model ChatThread {

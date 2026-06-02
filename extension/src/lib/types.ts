@@ -4,6 +4,21 @@ export type OpenPinnaShortcutPreset =
   | "mod+shift+n"
   | "manual";
 
+export type ArtifactType = "screenshot" | "pdf";
+export type CaptureMode = "viewport-screenshot" | "page-screenshot" | "pdf-download";
+
+export interface CaptureArtifact {
+  id: string;
+  artifactType: ArtifactType;
+  captureMode: CaptureMode;
+  mimeType: string;
+  storagePath: string;
+  originalUrl: string;
+  title?: string;
+  fileName?: string;
+  createdAt: string;
+}
+
 export type OpenPinnaSettings = {
   overlayEnabled: boolean;
   voiceAgentFeatureEnabled: boolean;
@@ -33,6 +48,38 @@ export type OpenPinnaCaptureDraft = {
 export type OpenPinnaProjectSummary = {
   id: string;
   title: string;
+};
+
+export type OpenPinnaPageCaptureMetrics = {
+  targetId: string;
+  targetKind: "window" | "element";
+  originalScrollLeft: number;
+  originalScrollTop: number;
+  scrollY: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  documentHeight: number;
+  devicePixelRatio: number;
+};
+
+export type OpenPinnaScreenshotChunkMetadata = {
+  screenshotId: string;
+  voiceSessionId: string;
+  audioId?: string;
+  chunkId: string;
+  chunkIndex: number;
+  pageUrl: string;
+  pageTitle: string;
+  scrollY: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  documentHeight: number;
+  devicePixelRatio: number;
+  capturedAt: string;
+  projectId?: string;
+  pinnaId?: string;
+  sourceJson?: Record<string, unknown>;
+  selectedText?: string;
 };
 
 export type OpenPinnaBackendNote = {
@@ -77,6 +124,37 @@ export type OpenPinnaBackgroundMessage =
   | { type: "VOICE_SESSION_CREATED"; sessionId: string; audioId: string }
   | { type: "VOICE_RECORDING_START" }
   | { type: "VOICE_RECORDING_STARTED"; mimeType: string }
+  | { type: "SCREENSHOT_SESSION_START_REQUESTED"; voiceSessionId: string }
+  | { type: "SCREENSHOT_SESSION_STARTED"; voiceSessionId: string; screenshotId: string }
+  | { type: "SCREENSHOT_CAPTURE_MEASURE_PAGE" }
+  | { type: "SCREENSHOT_CAPTURE_PAGE_MEASURED"; metrics: OpenPinnaPageCaptureMetrics }
+  | { type: "SCREENSHOT_CAPTURE_SCROLL_TO"; targetId: string; scrollY: number }
+  | { type: "SCREENSHOT_CAPTURE_SCROLLED"; targetId: string; scrollY: number }
+  | { type: "SCREENSHOT_CAPTURE_RESTORE_SCROLL"; targetId: string; scrollY: number; left: number }
+  | { type: "SCREENSHOT_CHUNK_CAPTURED"; metadata: OpenPinnaScreenshotChunkMetadata }
+  | { type: "SCREENSHOT_CHUNK_UPLOAD_REQUESTED"; metadata: OpenPinnaScreenshotChunkMetadata }
+  | {
+      type: "SCREENSHOT_CHUNK_UPLOADED";
+      metadata: OpenPinnaScreenshotChunkMetadata;
+      filePath: string;
+      status: "stored";
+    }
+  | {
+      type: "SCREENSHOT_CHUNK_UPLOAD_FAILED";
+      metadata: Pick<OpenPinnaScreenshotChunkMetadata, "voiceSessionId" | "chunkId" | "chunkIndex">;
+      message: string;
+    }
+  | { type: "SCREENSHOT_SESSION_FINALIZE_REQUESTED"; voiceSessionId: string; screenshotId: string }
+  | {
+      type: "SCREENSHOT_SESSION_FINALIZED";
+      voiceSessionId: string;
+      screenshotId: string;
+      chunkCount: number;
+      manifestPath: string;
+    }
+  | { type: "SCREENSHOT_SESSION_CANCEL_REQUESTED"; voiceSessionId: string; screenshotId?: string }
+  | { type: "SCREENSHOT_SESSION_CANCELLED"; voiceSessionId: string; screenshotId?: string }
+  | { type: "SCREENSHOT_SESSION_ERROR"; voiceSessionId: string; message: string; screenshotId?: string }
   | {
       type: "VOICE_RECORDING_CHUNK_READY";
       chunk: {

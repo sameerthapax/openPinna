@@ -3,6 +3,22 @@ import path from "node:path";
 
 const transcriptionModel = process.env.OPENAI_TRANSCRIPTION_MODEL || "gpt-4o-mini-transcribe";
 
+function normalizeTranscriptionLanguage(languageHint?: string | null) {
+  const value = (languageHint || "").trim();
+
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.replace(/_/g, "-").split("-")[0]?.toLowerCase() || "";
+
+  if (!/^[a-z]{2,3}$/.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
 export async function getVoiceBackendStatus() {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
 
@@ -49,7 +65,7 @@ export async function getVoiceBackendStatus() {
   }
 }
 
-export async function transcribeAudioFile(filePath: string): Promise<string> {
+export async function transcribeAudioFile(filePath: string, languageHint?: string | null): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
 
   if (!apiKey) {
@@ -62,6 +78,10 @@ export async function transcribeAudioFile(filePath: string): Promise<string> {
   const formData = new FormData();
   formData.append("model", transcriptionModel);
   formData.append("file", new Blob([bytes], { type: mimeType }), filename);
+  const normalizedLanguage = normalizeTranscriptionLanguage(languageHint);
+  if (normalizedLanguage) {
+    formData.append("language", normalizedLanguage);
+  }
 
   const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",

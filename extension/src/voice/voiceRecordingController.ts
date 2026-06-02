@@ -3,6 +3,7 @@ import type { OpenPinnaBackgroundMessage } from "../lib/types";
 import {
   createVoiceSessionRequest,
   finalizeVoiceSessionRequest,
+  updateVoiceSessionRequest,
   uploadVoiceChunkRequest,
 } from "./voiceSessionClient";
 
@@ -114,7 +115,11 @@ export function createVoiceRecordingController(deps: VoiceControllerDeps) {
     });
     if (state.isRecording || state.activeVoiceSessionId) {
       logState("start-skipped-already-active");
-      return { active: true };
+      return {
+        active: true,
+        sessionId: state.activeVoiceSessionId,
+        audioId: state.activeAudioId,
+      };
     }
 
     state.activeTabId = activeTabId;
@@ -152,7 +157,38 @@ export function createVoiceRecordingController(deps: VoiceControllerDeps) {
       throw error;
     }
 
-    return { active: true };
+    return {
+      active: true,
+      sessionId: state.activeVoiceSessionId,
+      audioId: state.activeAudioId,
+    };
+  }
+
+  async function updateSourceJson(sourceJson: Record<string, unknown>, expectedSessionId?: string) {
+    if (!state.activeVoiceSessionId || !state.sourceJson) {
+      return { updated: false };
+    }
+
+    if (expectedSessionId && state.activeVoiceSessionId !== expectedSessionId) {
+      return { updated: false };
+    }
+
+    state.sourceJson = sourceJson;
+
+    try {
+      await updateVoiceSessionRequest({
+        sessionId: state.activeVoiceSessionId,
+        sourceJson,
+      });
+    } catch (error) {
+      console.warn("[openPinna][voice] could not persist session source metadata update", {
+        sessionId: state.activeVoiceSessionId,
+        message: error instanceof Error ? error.message : "Unknown session update error.",
+      });
+      throw error;
+    }
+
+    return { updated: true, sessionId: state.activeVoiceSessionId };
   }
 
   async function stop() {
@@ -335,6 +371,7 @@ export function createVoiceRecordingController(deps: VoiceControllerDeps) {
   return {
     start,
     stop,
+    updateSourceJson,
     onRecordingStarted,
     onChunkReady,
     onRecordingStopped,

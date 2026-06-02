@@ -1,3 +1,5 @@
+import { isPdfUrl, resolvePdfDocumentUrl } from "./pdf";
+
 function readMetaByName(name: string) {
   return document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content?.trim() || "";
 }
@@ -19,6 +21,13 @@ function parseAuthors(raw: string) {
 }
 
 export function extractSourceMetadata(pageTitle: string, pageUrl: string) {
+  const documentLanguage = document.documentElement.lang.trim() || "";
+  const pageLanguage = firstNonEmpty([
+    documentLanguage,
+    readMetaByName("dc.language"),
+    readMetaByProperty("og:locale"),
+    navigator.language,
+  ]);
   const title = firstNonEmpty([
     readMetaByProperty("og:title"),
     readMetaByName("citation_title"),
@@ -56,12 +65,15 @@ export function extractSourceMetadata(pageTitle: string, pageUrl: string) {
   ]);
   const publicationYear = Number.parseInt(publicationYearRaw.slice(0, 4), 10);
 
-  const sourceType = pageUrl.toLowerCase().endsWith(".pdf") ? "paper" : "web";
+  const resolvedPdfUrl = resolvePdfDocumentUrl(pageUrl);
+  const pdfLike = isPdfUrl(pageUrl);
+  const sourceType = pdfLike ? "paper" : "web";
 
   return {
     sourceType,
     title,
     url: pageUrl,
+    pdfUrl: pdfLike ? resolvedPdfUrl : null,
     abstract: abstract || null,
     authors: authorRaw ? parseAuthors(authorRaw) : [],
     publicationYear: Number.isFinite(publicationYear) ? publicationYear : null,
@@ -71,9 +83,12 @@ export function extractSourceMetadata(pageTitle: string, pageUrl: string) {
     metadata: {
       extractedAt: new Date().toISOString(),
       extractor: "extension-meta-v1",
+      pageLanguage: pageLanguage || null,
+      contentType: document.contentType || null,
       meta: {
         ogTitle: readMetaByProperty("og:title") || null,
         twitterTitle: readMetaByName("twitter:title") || null,
+        documentLanguage: documentLanguage || null,
       },
     },
   };

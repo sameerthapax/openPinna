@@ -1,11 +1,14 @@
 import { getSettings, updateSettings } from "../lib/chrome-storage";
 import { resolveBackendRoute } from "../lib/backend";
+import { fetchPdfArtifact, PdfCaptureError } from "../lib/pdf-capture";
+import { isPdfTab } from "../lib/pdf";
 import type {
   OpenPinnaBackgroundMessage,
   OpenPinnaBackendNote,
   OpenPinnaProjectSummary,
 } from "../lib/types";
 import { createVoiceRecordingController } from "../voice/voiceRecordingController";
+import { createScreenshotCaptureController } from "../voice/screenshotCaptureController";
 
 const VOICE_RECORDING_ACTIVE_KEY = "openpinna:voiceRecordingActive";
 const OFFSCREEN_VOICE_RECORDER_URL = "offscreen/voiceRecorderOffscreen.html";
@@ -76,6 +79,13 @@ type BackendNoteRequest = {
 
 type SessionResponse = { id: string };
 type SourceResponse = { id: string };
+type CaptureResponse = { id: string };
+
+type ExistingCaptureLookup = {
+  sessionId: string;
+  source: { id: string; url?: string | null; pdfUrl?: string | null } | null;
+  capture: { id: string; originalUrl?: string | null; artifactType?: string | null } | null;
+};
 
 const originalFetch = globalThis.fetch.bind(globalThis);
 
@@ -123,6 +133,10 @@ async function readBackendBaseUrl() {
   return normalized;
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function assertSettingsVerified() {
   const settings = await getSettings();
 
@@ -141,10 +155,13 @@ async function requestJson<T>(baseUrl: string, path: string, init?: RequestInit)
   const response = await fetch(resolveBackendRoute(baseUrl, path), {
     method: init?.method ?? "GET",
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
+    headers:
+      init?.body instanceof FormData
+        ? init?.headers
+        : {
+            "Content-Type": "application/json",
+            ...(init?.headers ?? {}),
+          },
   });
 
   const json = (await response.json().catch(() => null)) as
@@ -155,6 +172,8 @@ async function requestJson<T>(baseUrl: string, path: string, init?: RequestInit)
         notes?: T;
         source?: T;
         sources?: T;
+        capture?: T;
+        captures?: T;
         project?: T;
         projects?: T;
         session?: T;
@@ -170,6 +189,8 @@ async function requestJson<T>(baseUrl: string, path: string, init?: RequestInit)
   if ("notes" in json && json.notes) return json.notes;
   if ("source" in json && json.source) return json.source;
   if ("sources" in json && json.sources) return json.sources;
+  if ("capture" in json && json.capture) return json.capture;
+  if ("captures" in json && json.captures) return json.captures;
   if ("project" in json && json.project) return json.project;
   if ("projects" in json && json.projects) return json.projects;
   if ("session" in json && json.session) return json.session;
@@ -188,10 +209,13 @@ async function requestJsonEnvelope<T>(
   const response = await fetch(resolveBackendRoute(baseUrl, path), {
     method: init?.method ?? "GET",
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
+    headers:
+      init?.body instanceof FormData
+        ? init?.headers
+        : {
+            "Content-Type": "application/json",
+            ...(init?.headers ?? {}),
+          },
   });
 
   const json = (await response.json().catch(() => null)) as
@@ -258,6 +282,22 @@ async function listNotesFromBackend() {
   return requestJson<OpenPinnaBackendNote[]>(baseUrl, "/api/notes");
 }
 
+async function sendTabMessage(tabId: number | undefined, message: OpenPinnaBackgroundMessage) {
+  if (!tabId) {
+    return;
+  }
+
+  try {
+    await chrome.tabs.sendMessage(tabId, message);
+  } catch {
+    // Best effort UI status propagation.
+  }
+}
+
+const screenshotController = createScreenshotCaptureController({
+  sendTabMessage,
+});
+
 async function saveNoteToBackend(note: BackendNoteRequest) {
   const baseUrl = await readBackendBaseUrl();
   const session = await requestJson<SessionResponse>(baseUrl, `/api/projects/${note.projectId}/sessions/today`, {
@@ -293,6 +333,295 @@ async function saveNoteToBackend(note: BackendNoteRequest) {
       }),
     },
   );
+}
+
+function normalizeComparableUrl(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return value.trim() || null;
+  }
+}
+
+function buildComparableUrlCandidates(values: Array<string | null | undefined>) {
+  const candidates = new Set<string>();
+
+  for (const value of values) {
+    const normalized = normalizeComparableUrl(value);
+    if (normalized) {
+      candidates.add(normalized);
+    }
+  }
+
+  return Array.from(candidates);
+}
+
+function withExtensionScreenshotMetadata(
+  sourceMetadata: Record<string, unknown>,
+  patch: {
+    sourceId: string;
+    captureId: string;
+    pageUrl?: string | null;
+    pageTitle?: string | null;
+  },
+) {
+  const metadata =
+    sourceMetadata.metadata && typeof sourceMetadata.metadata === "object" && !Array.isArray(sourceMetadata.metadata)
+      ? (sourceMetadata.metadata as Record<string, unknown>)
+      : {};
+  const extensionScreenshot =
+    metadata.extensionScreenshot &&
+    typeof metadata.extensionScreenshot === "object" &&
+    !Array.isArray(metadata.extensionScreenshot)
+      ? (metadata.extensionScreenshot as Record<string, unknown>)
+      : {};
+
+  return {
+    ...sourceMetadata,
+    metadata: {
+      ...metadata,
+      extensionScreenshot: {
+        ...extensionScreenshot,
+        sourceId: patch.sourceId,
+        captureId: patch.captureId,
+        pageUrl: patch.pageUrl || null,
+        pageTitle: patch.pageTitle || null,
+        reusedExistingCapture: true,
+      },
+    },
+  };
+}
+
+async function findExistingCaptureForUrls(input: {
+  baseUrl: string;
+  projectId: string;
+  urls: string[];
+}) {
+  const session = await requestJson<SessionResponse>(
+    input.baseUrl,
+    `/api/projects/${input.projectId}/sessions/today`,
+    {
+      method: "POST",
+    },
+  );
+
+  if (input.urls.length === 0) {
+    return {
+      sessionId: session.id,
+      source: null,
+      capture: null,
+    } satisfies ExistingCaptureLookup;
+  }
+
+  const search = new URLSearchParams();
+  for (const url of input.urls) {
+    search.append("url", url);
+  }
+
+  const result = await requestJsonEnvelope<{
+    ok: true;
+    source: { id: string; url?: string | null; pdfUrl?: string | null } | null;
+    capture: { id: string; originalUrl?: string | null; artifactType?: string | null } | null;
+  }>(
+    input.baseUrl,
+    `/api/projects/${input.projectId}/sessions/${session.id}/captures/by-url?${search.toString()}`,
+  );
+
+  return {
+    sessionId: session.id,
+    source: result.source,
+    capture: result.capture,
+  } satisfies ExistingCaptureLookup;
+}
+
+async function uploadCaptureArtifact(input: {
+  baseUrl: string;
+  sourceId: string;
+  sessionId: string;
+  file: Blob;
+  fileName: string;
+  artifactType: "pdf";
+  captureMode: "pdf-download" | "protected-pdf-download" | "manual-protected-pdf-import";
+  mimeType: string;
+  originalUrl: string;
+  title: string;
+}) {
+  const formData = new FormData();
+  formData.append("file", input.file, input.fileName);
+  formData.append("sessionId", input.sessionId);
+  formData.append("artifactType", input.artifactType);
+  formData.append("captureMode", input.captureMode);
+  formData.append("mimeType", input.mimeType);
+  formData.append("originalUrl", input.originalUrl);
+  formData.append("title", input.title);
+  formData.append("fileName", input.fileName);
+  formData.append("source", "browser-extension");
+
+  return requestJson<CaptureResponse>(
+    input.baseUrl,
+    `/api/sources/${input.sourceId}/captures`,
+    {
+      method: "POST",
+      body: formData,
+    },
+  );
+}
+
+async function savePdfNoteToBackend(note: BackendNoteRequest, tab?: chrome.tabs.Tab) {
+  const baseUrl = await readBackendBaseUrl();
+
+  const pdfUrl =
+      (note.sourceMetadata.pdfUrl as string | undefined) ||
+      tab?.url ||
+      note.sourceUrl;
+  console.info("[openPinna][pdf] savePdfNoteToBackend reached", { pdfUrl });
+
+  const existing = await findExistingCaptureForUrls({
+    baseUrl,
+    projectId: note.projectId,
+    urls: buildComparableUrlCandidates([pdfUrl, note.sourceUrl, tab?.url]),
+  });
+
+  if (existing.source?.id && existing.capture?.id) {
+    console.info("[openPinna][capture] reusing existing capture", {
+      projectId: note.projectId,
+      sessionId: existing.sessionId,
+      sourceId: existing.source.id,
+      captureId: existing.capture.id,
+      url: pdfUrl,
+    });
+
+    const noteText =
+      (note.body || "").trim() ||
+      `PDF captured: ${note.sourceTitle || note.title || "Untitled PDF"}`;
+    const userCommentary = (note.body || "").trim() || null;
+
+    return requestJson<OpenPinnaBackendNote>(
+      baseUrl,
+      `/api/projects/${note.projectId}/sessions/${existing.sessionId}/notes`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          sourceId: existing.source.id,
+          captureId: existing.capture.id,
+          noteText,
+          userCommentary,
+        }),
+      },
+    );
+  }
+
+  const sessionId = existing.sessionId;
+
+  const sourcePayload = {
+    ...note.sourceMetadata,
+    sourceType: "paper",
+    title: (note.sourceMetadata.title as string | null) || note.sourceTitle || null,
+    url: (note.sourceMetadata.url as string | null) || note.sourceUrl || null,
+    pdfUrl,
+    metadata: note.sourceMetadata,
+  };
+
+  const sourceId =
+    existing.source?.id ||
+    (
+      await requestJson<SourceResponse>(
+        baseUrl,
+        `/api/projects/${note.projectId}/sessions/${sessionId}/sources/url`,
+        {
+          method: "POST",
+          body: JSON.stringify(sourcePayload),
+        },
+      )
+    ).id;
+
+  try {
+    const pdfArtifact = await fetchPdfArtifact({
+      tabUrl: tab?.url || note.sourceUrl,
+      originalUrl: pdfUrl,
+      pageTitle: note.sourceTitle,
+    });
+
+    const capture = await uploadCaptureArtifact({
+      baseUrl,
+      sourceId,
+      sessionId,
+      file: pdfArtifact.blob,
+      fileName: pdfArtifact.fileName,
+      artifactType: "pdf",
+      captureMode: "pdf-download",
+      mimeType: pdfArtifact.mimeType,
+      originalUrl: pdfArtifact.originalUrl,
+      title: note.sourceTitle || note.title || "PDF captured",
+    });
+
+    console.info("[openPinna][pdf] PDF upload success", {
+      sourceId,
+      captureId: capture.id,
+      fileName: pdfArtifact.fileName,
+      originalUrl: pdfArtifact.originalUrl,
+    });
+
+    const noteText =
+        (note.body || "").trim() ||
+        `PDF captured: ${note.sourceTitle || note.title || "Untitled PDF"}`;
+
+    const userCommentary = (note.body || "").trim() || null;
+
+    return requestJson<OpenPinnaBackendNote>(
+        baseUrl,
+        `/api/projects/${note.projectId}/sessions/${sessionId}/notes`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            sourceId,
+            captureId: capture.id,
+            noteText,
+            userCommentary,
+          }),
+        },
+    );
+  } catch (error) {
+    if (!(error instanceof PdfCaptureError)) {
+      throw error;
+    }
+
+    const noteText =
+        (note.body || "").trim() ||
+        `Protected PDF detected: ${note.sourceTitle || note.title || "Untitled PDF"}`;
+
+    const userCommentary =
+        (note.body || "").trim() ||
+        `OpenPinna could not directly capture this PDF${
+            error.statusCode ? ` because the request returned ${error.statusCode}` : ""
+        }. Use the visible-page screenshot capture fallback for protected PDFs.`;
+
+    return requestJson<OpenPinnaBackendNote>(
+        baseUrl,
+        `/api/projects/${note.projectId}/sessions/${sessionId}/notes`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            sourceId,
+            noteText,
+            userCommentary,
+            metadata: {
+              pdfCaptureStatus: "screenshot_fallback_required",
+              protectedPdf: true,
+              pdfUrl,
+              statusCode: error.statusCode,
+              reason: error.message,
+            },
+          }),
+        },
+    );
+  }
 }
 
 async function deleteNoteFromBackend(id: string) {
@@ -481,6 +810,10 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
 
   if (message.type === "VOICE_RECORDING_ERROR") {
     console.error("[openPinna] Voice recording error", message.error);
+    const activeVoiceSessionId = voiceController.getState().activeVoiceSessionId;
+    if (activeVoiceSessionId) {
+      void screenshotController.stop(activeVoiceSessionId).catch(() => {});
+    }
     void voiceController.onRecordingError(message.error).catch((error) => {
       console.error("[openPinna] Could not clean up voice recording error.", error);
     });
@@ -511,7 +844,7 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
 
       if (message.type === "SAVE_CAPTURED_NOTE") {
         await assertSettingsVerified();
-        const note = await saveNoteToBackend({
+        const backendNote = {
           projectId: message.note.projectId,
           sessionDate: message.note.sessionDate,
           title: message.note.pageTitle || "Untitled page",
@@ -521,7 +854,21 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
           body: message.note.rawThought,
           tags: message.note.tags,
           sourceMetadata: message.note.sourceMetadata,
-        });
+        };
+        const sourceMetadata =
+          backendNote.sourceMetadata?.metadata &&
+          typeof backendNote.sourceMetadata.metadata === "object" &&
+          !Array.isArray(backendNote.sourceMetadata.metadata)
+            ? (backendNote.sourceMetadata.metadata as Record<string, unknown>)
+            : null;
+        const isPdfCapture =
+          isPdfTab(sender.tab) ||
+          (typeof backendNote.sourceMetadata.pdfUrl === "string" && Boolean(backendNote.sourceMetadata.pdfUrl)) ||
+          (typeof sourceMetadata?.contentType === "string" &&
+            sourceMetadata.contentType.toLowerCase().includes("application/pdf"));
+        const note = isPdfCapture
+          ? await savePdfNoteToBackend(backendNote, sender.tab)
+          : await saveNoteToBackend(backendNote);
 
         return { ok: true as const, handled: message.type, data: note };
       }
@@ -597,7 +944,7 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
           };
         }
 
-        await voiceController.start(
+        const startResult = await voiceController.start(
           {
             projectId,
             pinnaId: message.payload.pinnaId,
@@ -610,10 +957,113 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
           sender.tab?.id,
         );
 
+        if (sender.tab?.id && startResult.sessionId) {
+          const baseUrl = await readBackendBaseUrl();
+          const existing = await findExistingCaptureForUrls({
+            baseUrl,
+            projectId,
+            urls: buildComparableUrlCandidates([
+              sender.tab.url,
+              message.payload.pageUrl,
+              typeof message.payload.sourceJson?.pdfUrl === "string"
+                ? message.payload.sourceJson.pdfUrl
+                : null,
+              typeof message.payload.sourceJson?.url === "string"
+                ? message.payload.sourceJson.url
+                : null,
+            ]),
+          });
+
+          if (existing.source?.id && existing.capture?.id) {
+            console.info("[openPinna][capture] reusing existing capture for voice note", {
+              projectId,
+              sessionId: existing.sessionId,
+              voiceSessionId: startResult.sessionId,
+              sourceId: existing.source.id,
+              captureId: existing.capture.id,
+              pageUrl: message.payload.pageUrl,
+            });
+
+            await voiceController.updateSourceJson(
+              withExtensionScreenshotMetadata(message.payload.sourceJson || {}, {
+                sourceId: existing.source.id,
+                captureId: existing.capture.id,
+                pageUrl: message.payload.pageUrl,
+                pageTitle: message.payload.pageTitle,
+              }),
+              startResult.sessionId,
+            );
+
+            return { ok: true as const, handled: message.type, data: { active: true } };
+          }
+
+          const isPdfVoiceCapture =
+              isPdfTab(sender.tab) ||
+              message.payload.pageUrl?.toLowerCase().includes(".pdf");
+
+          if (isPdfVoiceCapture) {
+            const pdfUrl = sender.tab.url || message.payload.pageUrl;
+
+            console.info("[openPinna][pdf] voice PDF detected; using screenshot fallback", {
+              pdfUrl,
+              voiceSessionId: startResult.sessionId,
+            });
+
+            await sendTabMessage(sender.tab.id, {
+              type: "SCREENSHOT_CAPTURE_STATUS",
+              status: "pdf_screenshot_fallback_started",
+              message:
+                  "PDF detected. OpenPinna will capture the visible PDF page as a screenshot instead of downloading the PDF.",
+            } as unknown as OpenPinnaBackgroundMessage);
+
+            void screenshotController.start({
+              voiceSessionId: startResult.sessionId,
+              audioId: startResult.audioId || undefined,
+              projectId,
+              tabId: sender.tab.id,
+              windowId: sender.tab.windowId,
+              pageUrl: message.payload.pageUrl,
+              pageTitle: message.payload.pageTitle,
+              selectedText: message.payload.selectedText,
+                  sourceJson: {
+                    ...(message.payload.sourceJson || {}),
+                    sourceKind: "pdf-page-screenshot",
+                    originalPdfUrl: pdfUrl,
+                    captureMode: "pdf-visible-page-screenshot",
+                    forceScreenshotOnly: true,
+                  },
+              pinnaId: message.payload.pinnaId,
+            }).catch((error) => {
+              console.error("[openPinna][pdf] PDF screenshot fallback failed", error);
+            });
+          } else {
+            void screenshotController.start({
+              voiceSessionId: startResult.sessionId,
+              audioId: startResult.audioId || undefined,
+              projectId,
+              tabId: sender.tab.id,
+              windowId: sender.tab.windowId,
+              pageUrl: message.payload.pageUrl,
+              pageTitle: message.payload.pageTitle,
+              selectedText: message.payload.selectedText,
+              sourceJson: message.payload.sourceJson,
+              pinnaId: message.payload.pinnaId,
+            }).catch((error) => {
+              console.error("[openPinna][screenshot] screenshotController failed", error);
+            });
+          }
+        }
+
         return { ok: true as const, handled: message.type, data: { active: true } };
       }
 
       if (message.type === "VOICE_RECORDING_TOGGLE_OFF") {
+        const activeVoiceSessionId = voiceController.getState().activeVoiceSessionId;
+
+        if (activeVoiceSessionId) {
+          await screenshotController.stop(activeVoiceSessionId);
+        }
+
         if (voiceRecordingActiveRuntime || voiceController.getState().activeVoiceSessionId) {
           await voiceController.stop();
         } else {
@@ -632,6 +1082,20 @@ chrome.runtime.onMessage.addListener((message: OpenPinnaBackgroundMessage, sende
         message: "Unsupported background message.",
       };
     } catch (error) {
+      if (error instanceof PdfCaptureError) {
+        console.error("[openPinna][pdf] PDF upload failed", {
+          handled,
+          message: error.message,
+          statusCode: error.statusCode,
+        });
+        return {
+          ok: false as const,
+          handled,
+          code: "BACKEND_REQUEST_FAILED" as const,
+          message: error.message,
+        };
+      }
+
       const errorMessage = error instanceof Error ? error.message : "Backend request failed.";
 
       if (errorMessage === "BACKEND_URL_MISSING") {
