@@ -52,6 +52,20 @@ type VoiceRecording = {
   startedAt: string | null;
 };
 
+type KnowledgeSections = {
+  keyFindings: string;
+  userView: string;
+  conclusion: string;
+};
+
+type CaptureArtifact = {
+  captureUrl: string | null;
+  captureLabel: string | null;
+  captureBadgeLabel: string | null;
+  fileName: string | null;
+  artifactType: "screenshot" | "pdf";
+};
+
 function uid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
@@ -98,23 +112,23 @@ function stringifyMetadataValue(value: unknown) {
 export function NotePinnaBoard({
   noteId,
   noteTitle,
-  selectedText,
   noteOpinion,
   noteSummary,
-  knowledgeBuild,
+  knowledgeSections,
   sourceDetails,
   voiceRecording,
+  captureArtifact,
   initialThreads,
   initialLayout,
 }: {
   noteId: string;
   noteTitle: string;
-  selectedText: string;
   noteOpinion: string;
   noteSummary: string;
-  knowledgeBuild: string;
+  knowledgeSections: KnowledgeSections | null;
   sourceDetails: SourceDetails;
   voiceRecording: VoiceRecording | null;
+  captureArtifact: CaptureArtifact | null;
   initialThreads: PinnaSeed[];
   initialLayout?: PinnaLayout | null;
 }) {
@@ -358,7 +372,10 @@ export function NotePinnaBoard({
 
   return (
     <>
-      <div ref={boardRef} className="relative mt-6 min-h-[680px] overflow-hidden border border-[var(--border)] bg-[var(--surface-soft)] p-8">
+      <div
+        ref={boardRef}
+        className="relative min-h-[16dvh] overflow-hidden border border-[var(--border)] bg-[var(--surface-soft)] p-5 md:p-6 xl:min-h-[17dvh]"
+      >
         <div
           className="absolute left-0 top-0 origin-top-left"
           style={{
@@ -388,8 +405,14 @@ export function NotePinnaBoard({
           >
             <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Note title</p>
             <p className="mt-2 text-sm leading-7">{noteTitle}</p>
-            <p className="mt-4 font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Selected text</p>
-            <p className="mt-2 line-clamp-4 text-sm leading-7">{selectedText || "No selected text."}</p>
+            <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+              <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
+                Open note dossier
+              </p>
+              <span className="rounded-full border border-[var(--border)] px-3 py-1 font-mono-ui text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+                {knowledgeSections ? "Knowledge ready" : "Context pending"}
+              </span>
+            </div>
           </button>
 
           {nodes.map((node, index) => (
@@ -586,18 +609,42 @@ export function NotePinnaBoard({
                 </div>
 
                 <aside className="min-h-0 overflow-y-auto border border-[var(--border)] bg-[var(--surface)] p-4">
-                  <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Knowledge build</p>
-                  <h4 className="mt-2 text-lg font-semibold tracking-[-0.02em]">Mock summary update</h4>
+                  <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Context spine</p>
+                  <h4 className="mt-2 text-lg font-semibold tracking-[-0.02em]">Live note context</h4>
                   <div className="mt-4 space-y-3 text-sm leading-7 text-[var(--muted-foreground)]">
-                    <p>
-                      Base summary: <span className="text-[var(--foreground)]">{selectedText.slice(0, 120)}</span>
-                    </p>
-                    <p>
-                      Conversation suggests this idea should be tested with concrete evidence and one counter-example before being promoted to session memory.
-                    </p>
-                    <p>
-                      Proposed note summary (mock): The claim is promising but requires verification against conflicting interpretations and applied examples.
-                    </p>
+                    <div className="rounded-[16px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+                      <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
+                        Summary
+                      </p>
+                      <p className="mt-2 text-[var(--foreground)]">
+                        {noteSummary || "Knowledge summary is still being prepared."}
+                      </p>
+                    </div>
+                    {knowledgeSections ? (
+                      <>
+                        <div className="rounded-[16px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+                          <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
+                            Key findings
+                          </p>
+                          <p className="mt-2 text-[var(--foreground)]">{knowledgeSections.keyFindings}</p>
+                        </div>
+                        <div className="rounded-[16px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+                          <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
+                            User view
+                          </p>
+                          <p className="mt-2 text-[var(--foreground)]">{knowledgeSections.userView}</p>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="rounded-[16px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+                        <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
+                          Build status
+                        </p>
+                        <p className="mt-2 text-[var(--foreground)]">
+                          OpenPinna is still consolidating the note knowledge for this thread context.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </aside>
               </div>
@@ -616,7 +663,7 @@ export function NotePinnaBoard({
           }}
         >
           <div className="mx-auto flex h-full max-w-[1800px] items-center justify-center px-4 py-6 sm:px-6">
-            <div className="h-[90dvh] w-[90vw] min-w-[320px] min-h-0 rounded-[28px] border border-white/20 bg-[rgba(242,242,242,0.72)] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.34)] backdrop-blur-3xl dark:bg-[rgba(24,22,19,0.7)] sm:p-7">
+            <div className="flex h-[90dvh] w-[90vw] min-w-[320px] min-h-0 flex-col rounded-[28px] border border-white/20 bg-[rgba(242,242,242,0.72)] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.34)] backdrop-blur-3xl dark:bg-[rgba(24,22,19,0.7)] sm:p-7">
               <div className="mb-5 flex items-start justify-between border-b border-[var(--border)]/70 pb-5">
                 <div>
                   <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Central note</p>
@@ -631,37 +678,38 @@ export function NotePinnaBoard({
                 </button>
               </div>
 
-              <div className="grid h-[calc(100%-88px)] min-h-0 grid-cols-1 gap-4 xl:grid-cols-[1.3fr_0.7fr]">
-                <div className="grid min-h-0 grid-cols-1 gap-4 lg:grid-cols-2">
-                  <section className="min-h-0 overflow-hidden border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
-                    <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Selected text</p>
-                    <div className="mt-3 h-[calc(100%-28px)] min-h-0 overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface-soft)] p-4 text-sm leading-7">
-                      {selectedText || "No selected text."}
-                    </div>
-                  </section>
-                  <section className="min-h-0 overflow-hidden border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                <div className="grid min-h-full grid-cols-1 gap-4 xl:grid-cols-[1.3fr_0.7fr]">
+                  <div className="grid content-start grid-cols-1 gap-4 lg:grid-cols-2">
+                    <section className="min-h-[220px] overflow-hidden border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
                     <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">My opinion</p>
-                    <div className="mt-3 h-[calc(100%-28px)] min-h-0 overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface-soft)] p-4 text-sm leading-7">
+                    <div className="mt-3 max-h-[260px] overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface-soft)] p-4 text-sm leading-7">
                       {noteOpinion || "No opinion captured."}
                     </div>
-                  </section>
-                  <section className="min-h-0 overflow-hidden border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
+                    </section>
+                    <section className="min-h-[220px] overflow-hidden border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
                     <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Summary</p>
-                    <div className="mt-3 h-[calc(100%-28px)] min-h-0 overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface-soft)] p-4 text-sm leading-7">
+                    <div className="mt-3 max-h-[260px] overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface-soft)] p-4 text-sm leading-7">
                       {noteSummary || "No summary generated yet."}
                     </div>
-                  </section>
-                  <section className="min-h-0 overflow-hidden border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
-                    <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Knowledge build</p>
-                    <div className="mt-3 h-[calc(100%-28px)] min-h-0 overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface-soft)] p-4 text-sm leading-7">
-                      {knowledgeBuild || "No knowledge build captured yet."}
+                    </section>
+                    <section className="min-h-[200px] overflow-hidden border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
+                    <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Abstract</p>
+                    <div className="mt-3 max-h-[220px] overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface-soft)] p-4 text-sm leading-7">
+                      {sourceDetails.abstract || "No abstract captured yet."}
                     </div>
-                  </section>
-                </div>
+                    </section>
+                    <section className="min-h-[200px] overflow-hidden border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
+                    <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Source title</p>
+                    <div className="mt-3 max-h-[220px] overflow-y-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface-soft)] p-4 text-sm leading-7">
+                      {sourceDetails.title || noteTitle}
+                    </div>
+                    </section>
+                  </div>
 
-                <aside className="min-h-0 overflow-y-auto border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
-                  <div className="space-y-4">
-                    <section className="rounded-[10px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+                  <aside className="border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
+                    <div className="space-y-4">
+                      <section className="rounded-[10px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
                       <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Source</p>
                       <h4 className="mt-2 text-base font-semibold leading-6">{sourceDetails.title || noteTitle}</h4>
                       {sourceDetails.authors.length > 0 ? (
@@ -681,10 +729,10 @@ export function NotePinnaBoard({
                           ))}
                         </div>
                       ) : null}
-                    </section>
+                      </section>
 
-                    {(sourceDetails.url || sourceDetails.pdfUrl || sourceDetails.doi) ? (
-                      <section className="rounded-[10px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+                      {(sourceDetails.url || sourceDetails.pdfUrl || sourceDetails.doi) ? (
+                        <section className="rounded-[10px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
                         <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Links</p>
                         <div className="mt-3 grid gap-3">
                           {sourceDetails.url ? (
@@ -718,11 +766,33 @@ export function NotePinnaBoard({
                             </a>
                           ) : null}
                         </div>
-                      </section>
-                    ) : null}
+                        </section>
+                      ) : null}
 
-                    {voiceRecording ? (
-                      <section className="rounded-[10px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+                      {captureArtifact?.captureUrl ? (
+                        <section className="rounded-[10px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+                        <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
+                          Capture artifact
+                        </p>
+                        <div className="mt-3 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-3">
+                          <p className="text-sm font-medium leading-6">{captureArtifact.captureBadgeLabel}</p>
+                          <p className="mt-1 text-sm leading-6 text-[var(--muted-foreground)]">
+                            {captureArtifact.fileName || "Captured artifact"}
+                          </p>
+                          <a
+                            href={captureArtifact.captureUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-3 inline-flex text-sm underline decoration-[var(--border)] underline-offset-4"
+                          >
+                            {captureArtifact.captureLabel || "Open capture"}
+                          </a>
+                        </div>
+                        </section>
+                      ) : null}
+
+                      {voiceRecording ? (
+                        <section className="rounded-[10px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Voice recording</p>
@@ -758,7 +828,7 @@ export function NotePinnaBoard({
                               Open captured page
                             </a>
                           ) : null}
-                          {voiceRecording.captureUrl ? (
+                          {voiceRecording.captureUrl && !captureArtifact?.captureUrl ? (
                             <a
                               href={voiceRecording.captureUrl}
                               target="_blank"
@@ -774,17 +844,12 @@ export function NotePinnaBoard({
                             {voiceRecording.transcript}
                           </div>
                         ) : null}
-                      </section>
-                    ) : null}
+                        </section>
+                      ) : null}
 
-                    {(sourceDetails.abstract || sourceMetadataEntries.length > 0) ? (
-                      <section className="rounded-[10px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+                      {sourceMetadataEntries.length > 0 ? (
+                        <section className="rounded-[10px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
                         <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Source metadata</p>
-                        {sourceDetails.abstract ? (
-                          <div className="mt-3 rounded-[8px] border border-[var(--border)] bg-[var(--surface)] p-3 text-sm leading-7">
-                            {sourceDetails.abstract}
-                          </div>
-                        ) : null}
                         {sourceMetadataEntries.length > 0 ? (
                           <div className="mt-4 grid gap-3">
                             {sourceMetadataEntries.map((entry) => (
@@ -797,10 +862,11 @@ export function NotePinnaBoard({
                             ))}
                           </div>
                         ) : null}
-                      </section>
-                    ) : null}
-                  </div>
-                </aside>
+                        </section>
+                      ) : null}
+                    </div>
+                  </aside>
+                </div>
               </div>
             </div>
           </div>

@@ -122,16 +122,17 @@ model Note {
   captureId              String?                      @map("capture_id") @db.Uuid
   voiceSessionId         String?                      @map("voice_session_id") @db.Uuid
   voiceAudioId           String?                      @map("voice_audio_id") @db.Uuid
+  noteKnowledgeId        String?                      @unique @map("note_knowledge_id") @db.Uuid
   project                Project                      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   session                Session                      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   source                 Source?                      @relation(fields: [sourceId], references: [id], onDelete: SetNull)
   capture                Capture?                     @relation(fields: [captureId], references: [id], onDelete: SetNull)
   voiceSession           VoiceAudioSession?           @relation("VoiceSessionNotes", fields: [voiceSessionId], references: [id], onDelete: SetNull)
   voiceAudio             VoiceAudio?                  @relation(fields: [voiceAudioId], references: [id], onDelete: SetNull)
+  linkedNoteKnowledge    NoteKnowledge?               @relation("NoteKnowledgeLink", fields: [noteKnowledgeId], references: [id], onDelete: SetNull)
   finalizedVoiceSessions VoiceAudioSession[]          @relation("VoiceSessionFinalNote")
   noteText               String                       @map("note_text") @db.Text
   userCommentary         String?                      @map("user_commentary") @db.Text
-  aiExtractedClaim       String?                      @map("ai_extracted_claim") @db.Text
   noteSummary            String?                      @map("note_summary") @db.Text
   pinnaLayout            Json?                        @map("pinna_layout")
   importanceScore        Decimal                      @default(0) @map("importance_score") @db.Decimal
@@ -141,6 +142,7 @@ model Note {
   chatThreads            ChatThread[]
   knowledgeEvents        KnowledgeEvent[]
   knowledgeNodes         KnowledgeNode[]
+  noteKnowledge          NoteKnowledge?               @relation("NoteKnowledgeOwner")
 
   @@index([projectId])
   @@index([sessionId])
@@ -148,6 +150,110 @@ model Note {
   @@index([voiceSessionId])
   @@index([voiceAudioId])
   @@map("notes")
+}
+
+model ProcessingJobOutbox {
+  id             String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  jobType        String   @map("job_type")
+  status         String   @default("pending")
+  projectId      String?  @map("project_id") @db.Uuid
+  sessionId      String?  @map("session_id") @db.Uuid
+  noteId         String?  @map("note_id") @db.Uuid
+  sourceId       String?  @map("source_id") @db.Uuid
+  voiceSessionId String?  @map("voice_session_id") @db.Uuid
+  audioId        String?  @map("audio_id") @db.Uuid
+  screenshotId   String?  @map("screenshot_id") @db.Uuid
+  captureId      String?  @map("capture_id") @db.Uuid
+  payload        Json     @default("{}")
+  attempts       Int      @default(0)
+  maxAttempts    Int      @default(3) @map("max_attempts")
+  runAfter       DateTime @default(now()) @map("run_after") @db.Timestamptz(6)
+  lockedAt       DateTime? @map("locked_at") @db.Timestamptz(6)
+  lockedBy       String?  @map("locked_by")
+  lastError      String?  @map("last_error") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, runAfter, createdAt])
+  @@index([noteId, jobType])
+  @@index([voiceSessionId, jobType])
+  @@map("processing_job_outbox")
+}
+
+model ProcessingJobHistory {
+  id             String    @id @db.Uuid
+  jobType        String    @map("job_type")
+  finalStatus    String    @map("final_status")
+  projectId      String?   @map("project_id") @db.Uuid
+  sessionId      String?   @map("session_id") @db.Uuid
+  noteId         String?   @map("note_id") @db.Uuid
+  sourceId       String?   @map("source_id") @db.Uuid
+  voiceSessionId String?   @map("voice_session_id") @db.Uuid
+  audioId        String?   @map("audio_id") @db.Uuid
+  screenshotId   String?   @map("screenshot_id") @db.Uuid
+  captureId      String?   @map("capture_id") @db.Uuid
+  payload        Json      @default("{}")
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(3) @map("max_attempts")
+  startedAt      DateTime? @map("started_at") @db.Timestamptz(6)
+  completedAt    DateTime? @map("completed_at") @db.Timestamptz(6)
+  failedAt       DateTime? @map("failed_at") @db.Timestamptz(6)
+  lastError      String?   @map("last_error") @db.Text
+  createdAt      DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([noteId, jobType])
+  @@index([voiceSessionId, jobType])
+  @@index([finalStatus, createdAt])
+  @@map("processing_job_history")
+}
+
+model ScreenshotCaptureProcessing {
+  id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  screenshotId  String?   @unique @map("screenshot_id") @db.Uuid
+  captureId     String?   @unique @map("capture_id") @db.Uuid
+  sourceId      String?   @map("source_id") @db.Uuid
+  noteId        String?   @map("note_id") @db.Uuid
+  status        String    @default("pending")
+  extractedText String?   @map("extracted_text") @db.Text
+  importantText String?   @map("important_text") @db.Text
+  model         String?
+  processedAt   DateTime? @map("processed_at") @db.Timestamptz(6)
+  lastError     String?   @map("last_error") @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, createdAt])
+  @@index([noteId])
+  @@index([sourceId])
+  @@map("screenshot_capture_processing")
+}
+
+model NoteKnowledge {
+  id              String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  noteId          String   @unique @map("note_id") @db.Uuid
+  sourceId        String?  @map("source_id") @db.Uuid
+  projectId       String?  @map("project_id") @db.Uuid
+  sessionId       String?  @map("session_id") @db.Uuid
+  title           String?
+  authors         Json?    @default("[]")
+  publicationDate String?  @map("publication_date")
+  abstract        String?  @db.Text
+  summary         String?  @db.Text
+  keyFindings     String   @map("key_findings") @db.Text
+  userView        String   @map("user_view") @db.Text
+  conclusion      String   @db.Text
+  model           String?
+  sourceSnapshot  Json     @default("{}") @map("source_snapshot")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  note            Note     @relation("NoteKnowledgeOwner", fields: [noteId], references: [id], onDelete: Cascade)
+  linkedFromNote  Note?    @relation("NoteKnowledgeLink")
+
+  @@index([projectId])
+  @@index([sessionId])
+  @@index([sourceId])
+  @@map("note_knowledge")
 }
 
 model VoiceAudioSession {

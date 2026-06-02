@@ -127,6 +127,37 @@ a {
   animation-delay: calc(var(--index, 0) * 80ms);
 }
 
+.knowledge-orbit::before,
+.knowledge-orbit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.knowledge-orbit::before {
+  border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+  animation: knowledge-orbit 3.2s cubic-bezier(0.32, 0.72, 0, 1) infinite;
+}
+
+.knowledge-orbit::after {
+  inset: 10px;
+  background:
+    radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--foreground) 22%, transparent), transparent 58%),
+    radial-gradient(circle at 70% 70%, color-mix(in srgb, var(--pastel-blue-text) 30%, transparent), transparent 60%);
+  opacity: 0.72;
+  animation: knowledge-breathe 2.8s cubic-bezier(0.32, 0.72, 0, 1) infinite;
+}
+
+.knowledge-pulse {
+  animation: knowledge-pulse 1.8s cubic-bezier(0.32, 0.72, 0, 1) infinite;
+}
+
+.knowledge-shimmer {
+  background-size: 200% 100%;
+  animation: knowledge-shimmer 2.4s linear infinite;
+}
+
 @keyframes reveal {
   from {
     opacity: 0;
@@ -138,8 +169,63 @@ a {
   }
 }
 
+@keyframes knowledge-orbit {
+  0% {
+    opacity: 0.38;
+    transform: scale(0.84) rotate(0deg);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.04) rotate(180deg);
+  }
+  100% {
+    opacity: 0.38;
+    transform: scale(0.84) rotate(360deg);
+  }
+}
+
+@keyframes knowledge-breathe {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes knowledge-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes knowledge-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .reveal {
+    animation: none;
+  }
+
+  .knowledge-orbit::before,
+  .knowledge-orbit::after,
+  .knowledge-pulse,
+  .knowledge-shimmer {
     animation: none;
   }
 }
