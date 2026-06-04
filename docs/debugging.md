@@ -218,6 +218,69 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 - Source metadata now reaches backend source creation route as JSON, including extracted fields (authors/title/abstract/url/etc) and full `metadata` payload.
 - Note field mapping now matches requested behavior (`noteText` and `userCommentary` corrected).
 
+## New Issue
+
+- The note research board rendered too shallow, selected text could not behave as a proper long-form evidence panel, and the central note modal overloaded the right rail with too much context.
+- The knowledge build area also read like equal cards instead of a clear synthesis brief.
+
+## Suspected Cause
+
+- The board and selected-text panel used short viewport heights intended for compact cards rather than a full reading workspace.
+- The central note modal grouped nearly all provenance, artifacts, audio, and metadata into one narrow sidebar.
+- The knowledge build used a flat three-card grid without a primary reading hierarchy.
+
+## Files Touched
+
+- `components/notes/NotePinnaBoard.tsx`
+- `components/notes/NoteKnowledgeBuildPanel.tsx`
+- `app/notes/[projectId]/sessions/[sessionId]/notes/[noteId]/page.tsx`
+
+## Fix Attempted
+
+- Raised the pinna board to an `80dvh` minimum with a `90dvh` cap and aligned the selected-text panel to the same reading height.
+- Kept selected text in its own independently scrollable panel.
+- Rebuilt the central note modal into a warmer dossier layout:
+  - moved source/authors/publication context into the main narrative column,
+  - reduced the right rail to links, capture artifacts, and voice media,
+  - added clearer section hierarchy and balanced scrolling containers.
+- Redesigned the knowledge build into an editorial brief with:
+  - a lead summary,
+  - a larger findings section,
+  - separate interpretation and conclusion blocks,
+  - a small metadata rail.
+
+## Final Result
+
+- The note board now occupies a stable reading workspace.
+- Long selected text scrolls cleanly without collapsing the page.
+- The central note modal is more balanced and informative, with less crowding in the right rail.
+- The knowledge build reads as a synthesis document instead of a generic card row.
+
+## New Issue
+
+- Author names were still missing on the note research page even when the linked note knowledge record had author data.
+- Dragging pinna cards caused the connector line to stay with the cursor while the card itself visibly lagged behind.
+
+## Suspected Cause
+
+- The note page only read authors from `source.authors` and metadata fallbacks, but not from `linkedNoteKnowledge.authors` / `noteKnowledge.authors`.
+- Draggable pinna cards used `transition-all`, so every `left` and `top` update from the D3 drag handler was being animated.
+
+## Files Touched
+
+- `app/notes/[projectId]/sessions/[sessionId]/notes/[noteId]/page.tsx`
+- `components/notes/NotePinnaBoard.tsx`
+
+## Fix Attempted
+
+- Changed author precedence so the note page reads authors from note knowledge first, then falls back to source authors and source metadata author-like fields.
+- Narrowed pinna card transitions to visual-only properties (`background-color`, `transform`, `box-shadow`) so D3 position updates render immediately under the cursor.
+
+## Final Result
+
+- Authors now render from the note knowledge record whenever present.
+- Pinna cards now move in sync with the connector line during drag instead of trailing behind it.
+
 ## Problem
 
 - Screenshot OCR still used the OpenAI vision path, which made the OCR stage remote-dependent and mixed OCR with the downstream text-structuring steps.
