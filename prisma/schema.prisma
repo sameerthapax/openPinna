@@ -110,6 +110,7 @@ model Capture {
   caption         String?
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   notes           Note[]
+  screenshotProcessing ScreenshotCaptureProcessing?
 
   @@map("captures")
 }
@@ -143,6 +144,7 @@ model Note {
   knowledgeEvents        KnowledgeEvent[]
   knowledgeNodes         KnowledgeNode[]
   noteKnowledge          NoteKnowledge?               @relation("NoteKnowledgeOwner")
+  screenshotProcessings  ScreenshotCaptureProcessing[]
 
   @@index([projectId])
   @@index([sessionId])
@@ -163,6 +165,8 @@ model ProcessingJobOutbox {
   voiceSessionId String?  @map("voice_session_id") @db.Uuid
   audioId        String?  @map("audio_id") @db.Uuid
   screenshotId   String?  @map("screenshot_id") @db.Uuid
+  screenshotProcessingId String? @map("screenshot_processing_id") @db.Uuid
+  screenshotChunkProcessingId String? @map("screenshot_chunk_processing_id") @db.Uuid
   captureId      String?  @map("capture_id") @db.Uuid
   payload        Json     @default("{}")
   attempts       Int      @default(0)
@@ -177,6 +181,8 @@ model ProcessingJobOutbox {
   @@index([status, runAfter, createdAt])
   @@index([noteId, jobType])
   @@index([voiceSessionId, jobType])
+  @@index([screenshotProcessingId, jobType])
+  @@index([screenshotChunkProcessingId, jobType])
   @@map("processing_job_outbox")
 }
 
@@ -191,6 +197,8 @@ model ProcessingJobHistory {
   voiceSessionId String?   @map("voice_session_id") @db.Uuid
   audioId        String?   @map("audio_id") @db.Uuid
   screenshotId   String?   @map("screenshot_id") @db.Uuid
+  screenshotProcessingId String? @map("screenshot_processing_id") @db.Uuid
+  screenshotChunkProcessingId String? @map("screenshot_chunk_processing_id") @db.Uuid
   captureId      String?   @map("capture_id") @db.Uuid
   payload        Json      @default("{}")
   attempts       Int       @default(0)
@@ -204,6 +212,8 @@ model ProcessingJobHistory {
 
   @@index([noteId, jobType])
   @@index([voiceSessionId, jobType])
+  @@index([screenshotProcessingId, jobType])
+  @@index([screenshotChunkProcessingId, jobType])
   @@index([finalStatus, createdAt])
   @@map("processing_job_history")
 }
@@ -215,18 +225,47 @@ model ScreenshotCaptureProcessing {
   sourceId      String?   @map("source_id") @db.Uuid
   noteId        String?   @map("note_id") @db.Uuid
   status        String    @default("pending")
+  expectedChunkCount Int  @default(0) @map("expected_chunk_count")
+  completedChunkCount Int @default(0) @map("completed_chunk_count")
+  failedChunkCount Int    @default(0) @map("failed_chunk_count")
   extractedText String?   @map("extracted_text") @db.Text
   importantText String?   @map("important_text") @db.Text
   model         String?
   processedAt   DateTime? @map("processed_at") @db.Timestamptz(6)
+  aggregatedAt  DateTime? @map("aggregated_at") @db.Timestamptz(6)
   lastError     String?   @map("last_error") @db.Text
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  screenshotSession VoiceScreenshotSession? @relation(fields: [screenshotId], references: [id], onDelete: SetNull)
+  capture       Capture?  @relation(fields: [captureId], references: [id], onDelete: SetNull)
+  note          Note?     @relation(fields: [noteId], references: [id], onDelete: SetNull)
+  chunkProcessings ScreenshotChunkProcessing[]
 
   @@index([status, createdAt])
   @@index([noteId])
   @@index([sourceId])
   @@map("screenshot_capture_processing")
+}
+
+model ScreenshotChunkProcessing {
+  id                       String                     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  screenshotProcessingId   String                     @map("screenshot_processing_id") @db.Uuid
+  voiceScreenshotChunkId   String                     @unique @map("voice_screenshot_chunk_id") @db.Uuid
+  chunkIndex               Int                        @map("chunk_index")
+  status                   String                     @default("pending")
+  extractedText            String?                    @map("extracted_text") @db.Text
+  importantText            String?                    @map("important_text") @db.Text
+  model                    String?
+  processedAt              DateTime?                  @map("processed_at") @db.Timestamptz(6)
+  lastError                String?                    @map("last_error") @db.Text
+  createdAt                DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime                   @default(now()) @map("updated_at") @db.Timestamptz(6)
+  screenshotProcessing     ScreenshotCaptureProcessing @relation(fields: [screenshotProcessingId], references: [id], onDelete: Cascade)
+  voiceScreenshotChunk     VoiceScreenshotChunk       @relation(fields: [voiceScreenshotChunkId], references: [id], onDelete: Cascade)
+
+  @@unique([screenshotProcessingId, chunkIndex])
+  @@index([status, createdAt])
+  @@map("screenshot_chunk_processing")
 }
 
 model NoteKnowledge {
@@ -345,6 +384,13 @@ model VoiceScreenshotSession {
   status           String            @default("created")
   manifestPath     String?           @map("manifest_path") @db.Text
   fullImagePath    String?           @map("full_image_path") @db.Text
+  finalizedSummary String?           @map("finalized_summary") @db.Text
+  importantContext String?           @map("important_context") @db.Text
+  finalizationModel String?          @map("finalization_model")
+  finalizationStatus String          @default("pending") @map("finalization_status")
+  finalizationError String?          @map("finalization_error") @db.Text
+  finalizationStartedAt DateTime?    @map("finalization_started_at") @db.Timestamptz(6)
+  finalizedAt      DateTime?         @map("finalized_at") @db.Timestamptz(6)
   errorMessage     String?           @map("error_message") @db.Text
   startedAt        DateTime          @default(now()) @map("started_at") @db.Timestamptz(6)
   completedAt      DateTime?         @map("completed_at") @db.Timestamptz(6)
@@ -354,6 +400,7 @@ model VoiceScreenshotSession {
   audio            VoiceAudio?       @relation(fields: [audioId], references: [id], onDelete: SetNull)
   project          Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
   chunks           VoiceScreenshotChunk[]
+  processing       ScreenshotCaptureProcessing?
 
   @@index([audioId])
   @@index([sourceId])
@@ -380,12 +427,19 @@ model VoiceScreenshotChunk {
   viewportHeight      Int?                  @map("viewport_height")
   documentHeight      Int?                  @map("document_height")
   devicePixelRatio    Float?                @map("device_pixel_ratio")
+  extractedText       String?               @map("extracted_text") @db.Text
+  ocrStatus           String                @default("pending") @map("ocr_status")
+  ocrError            String?               @map("ocr_error") @db.Text
+  ocrModel            String?               @map("ocr_model")
+  ocrStartedAt        DateTime?             @map("ocr_started_at") @db.Timestamptz(6)
+  ocrCompletedAt      DateTime?             @map("ocr_completed_at") @db.Timestamptz(6)
   capturedAt          DateTime?             @map("captured_at") @db.Timestamptz(6)
   status              String                @default("stored")
   createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
   screenshotSession   VoiceScreenshotSession @relation(fields: [screenshotSessionId], references: [id], onDelete: Cascade)
   audio               VoiceAudio?           @relation(fields: [audioId], references: [id], onDelete: SetNull)
+  chunkProcessing     ScreenshotChunkProcessing?
 
   @@unique([screenshotSessionId, chunkIndex])
   @@index([voiceSessionId, chunkIndex])

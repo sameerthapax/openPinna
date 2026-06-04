@@ -1,9 +1,7 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { z, ZodTypeAny } from "zod";
 import {
-  ExtractedScreenshot,
-  extractedScreenshotSchema,
+  FinalizedScreenshotInfo,
+  finalizedScreenshotInfoSchema,
   NoteKnowledgeSections,
   noteKnowledgeSectionsSchema,
   processingLogPrefix,
@@ -12,7 +10,8 @@ import {
 } from "@/src/processing/processingTypes";
 
 const chatCompletionsUrl = "https://api.openai.com/v1/chat/completions";
-const defaultProcessingModel = process.env.OPENAI_PROCESSING_MODEL?.trim() || "gpt-4.1-mini";
+const defaultProcessingModel =
+  process.env.OPENAI_PROCESSING_MODEL?.trim() || "gpt-4.1-mini";
 
 function getApiKey() {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
@@ -24,45 +23,15 @@ function getApiKey() {
   return apiKey;
 }
 
-function detectImageMimeType(filePath: string) {
-  const extension = path.extname(filePath).toLowerCase();
-
-  if (extension === ".png") return "image/png";
-  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
-  if (extension === ".webp") return "image/webp";
-
-  return "application/octet-stream";
-}
-
-async function toDataUrl(filePath: string) {
-  const bytes = await readFile(filePath);
-  const mimeType = detectImageMimeType(filePath);
-  return `data:${mimeType};base64,${bytes.toString("base64")}`;
-}
-
 async function createChatCompletion(input: {
   systemPrompt: string;
   userText: string;
-  imagePath?: string;
   operation: string;
 }) {
   console.info(`${processingLogPrefix} openai request started`, {
     operation: input.operation,
     model: defaultProcessingModel,
-    hasImage: Boolean(input.imagePath),
   });
-
-  const content: Array<Record<string, unknown>> = [{ type: "text", text: input.userText }];
-
-  if (input.imagePath) {
-    content.push({
-      type: "image_url",
-      image_url: {
-        url: await toDataUrl(input.imagePath),
-        detail: "high",
-      },
-    });
-  }
 
   const response = await fetch(chatCompletionsUrl, {
     method: "POST",
@@ -76,20 +45,21 @@ async function createChatCompletion(input: {
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: input.systemPrompt },
-        { role: "user", content },
+        { role: "user", content: input.userText },
       ],
     }),
   });
 
-  const json = (await response.json().catch(() => null)) as
-    | {
-        choices?: Array<{ message?: { content?: string | null } }>;
-        error?: { message?: string };
-      }
-    | null;
+  const json = (await response.json().catch(() => null)) as {
+    choices?: Array<{ message?: { content?: string | null } }>;
+    error?: { message?: string };
+  } | null;
 
   if (!response.ok) {
-    throw new Error(json?.error?.message || `OpenAI request failed with status ${response.status}.`);
+    throw new Error(
+      json?.error?.message ||
+        `OpenAI request failed with status ${response.status}.`,
+    );
   }
 
   const contentText = json?.choices?.[0]?.message?.content?.trim();
@@ -130,9 +100,12 @@ async function parseJsonWithRepair<S extends ZodTypeAny>(
     return firstPass.data;
   }
 
-  console.warn(`${processingLogPrefix} openai json parse failed, attempting repair`, {
-    repairContext,
-  });
+  console.warn(
+    `${processingLogPrefix} openai json parse failed, attempting repair`,
+    {
+      repairContext,
+    },
+  );
 
   const repairedText = await createChatCompletion({
     operation: `${repairContext}:repair`,
@@ -160,41 +133,41 @@ async function requestStructuredJson<S extends ZodTypeAny>(input: {
   schemaName: string;
   systemPrompt: string;
   userText: string;
-  imagePath?: string;
 }): Promise<z.output<S>> {
   const responseText = await createChatCompletion({
     operation: input.schemaName,
     systemPrompt: input.systemPrompt,
     userText: input.userText,
-    imagePath: input.imagePath,
   });
 
   return parseJsonWithRepair(input.schema, responseText, input.schemaName);
 }
 
-export async function extractImportantTextFromScreenshot(input: {
-  imagePath: string;
+export async function finalizeScreenshotInformation(input: {
   pageTitle?: string | null;
   pageUrl?: string | null;
   selectedText?: string | null;
-}): Promise<ExtractedScreenshot> {
+  mergedRawText: string;
+}): Promise<FinalizedScreenshotInfo> {
   return requestStructuredJson({
-    schema: extractedScreenshotSchema,
-    schemaName: "ExtractedScreenshot",
+    schema: finalizedScreenshotInfoSchema,
+    schemaName: "FinalizedScreenshotInfo",
     systemPrompt: [
-      "You review screenshots captured from research sessions.",
-      "Extract visible text faithfully, then keep only the text and context that materially help explain the note.",
-      "Return JSON only with keys: extractedText, importantText, model.",
-      "importantText must stay concise and factual.",
+      "You finalize ordered OCR text from one screenshot session.",
+      "Use the OCR text as the primary evidence source and do not invent content not supported by it.",
+      "You may use selected text only as supporting context when it helps connect the screenshot to the note.",
+      "Return JSON only with keys: finalizedSummary, importantContext, model.",
+      "finalizedSummary should be a compact summary of what the screenshot content shows.",
+      "importantContext should capture the most useful concrete details for downstream note knowledge.",
     ].join(" "),
     userText: [
       `Page title: ${input.pageTitle || "Unknown"}`,
       `Page URL: ${input.pageUrl || "Unknown"}`,
       `Selected text: ${input.selectedText || "None"}`,
-      "Return complete visible text in extractedText when practical, and only the most relevant supporting context in importantText.",
+      "Ordered OCR text:",
+      input.mergedRawText || "None",
       `Set model to "${defaultProcessingModel}".`,
     ].join("\n"),
-    imagePath: input.imagePath,
   });
 }
 

@@ -3,13 +3,18 @@ import { pathToFileURL } from "node:url";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
 import { enqueueProcessingJob } from "@/src/processing/processingJobRepository";
-import { runProcessingSchedulerOnce, startProcessingScheduler } from "@/src/processing/processingScheduler";
+import {
+  runProcessingSchedulerOnce,
+  startProcessingScheduler,
+} from "@/src/processing/processingScheduler";
 import { processingLogPrefix } from "@/src/processing/processingTypes";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
 function asPayloadArray(values: Array<string | null | undefined>) {
-  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+  return Array.from(
+    new Set(values.filter((value): value is string => Boolean(value))),
+  );
 }
 
 async function loadNoteProcessingContext(noteId: string, client: DbClient) {
@@ -28,7 +33,10 @@ async function loadNoteProcessingContext(noteId: string, client: DbClient) {
   });
 }
 
-export async function enqueueNoteKnowledgeJobForNoteId(noteId: string, client: DbClient = db) {
+export async function enqueueNoteKnowledgeJobForNoteId(
+  noteId: string,
+  client: DbClient = db,
+) {
   console.info(`${processingLogPrefix} load note context for enqueue`, {
     noteId,
   });
@@ -40,10 +48,25 @@ export async function enqueueNoteKnowledgeJobForNoteId(noteId: string, client: D
   }
 
   const screenshotId = note.voiceSession?.screenshotSession?.id || null;
-  const captureIds = asPayloadArray([note.captureId, note.voiceSession?.screenshotSession?.captureId || null]);
-  const sourceUrl = note.source?.url || note.voiceSession?.pageUrl || note.capture?.originalUrl || null;
-  const pageTitle = note.source?.title || note.voiceSession?.pageTitle || note.capture?.title || null;
-  const selectedText = note.capture?.selectedText || note.voiceSession?.selectedText || note.noteText || null;
+  const captureIds = asPayloadArray([
+    note.captureId,
+    note.voiceSession?.screenshotSession?.captureId || null,
+  ]);
+  const sourceUrl =
+    note.source?.url ||
+    note.voiceSession?.pageUrl ||
+    note.capture?.originalUrl ||
+    null;
+  const pageTitle =
+    note.source?.title ||
+    note.voiceSession?.pageTitle ||
+    note.capture?.title ||
+    null;
+  const selectedText =
+    note.capture?.selectedText ||
+    note.voiceSession?.selectedText ||
+    note.noteText ||
+    null;
   const userComment = note.userCommentary || null;
 
   console.info(`${processingLogPrefix} enqueue note knowledge job`, {
@@ -80,13 +103,21 @@ export async function enqueueNoteKnowledgeJobForNoteId(noteId: string, client: D
         screenshotId,
         audioId: note.voiceAudioId,
         captureIds,
+        currentStep: "retrieval",
+        selectedScreenshotChunkIds: [],
+        selectedScreenshotChunkCount: 0,
+        lastProcessedChunkIndex: null,
+        retrievalSnapshot: null,
       },
     },
     client,
   );
 }
 
-export { runProcessingSchedulerOnce, startProcessingScheduler } from "@/src/processing/processingScheduler";
+export {
+  runProcessingSchedulerOnce,
+  startProcessingScheduler,
+} from "@/src/processing/processingScheduler";
 
 async function main() {
   if (process.argv.includes("--run-once")) {
@@ -111,7 +142,8 @@ const entryArg = process.argv[1] ? path.resolve(process.argv[1]) : null;
 if (entryArg && import.meta.url === pathToFileURL(entryArg).href) {
   void main().catch((error) => {
     console.error(`${processingLogPrefix} bootstrap failed`, {
-      message: error instanceof Error ? error.message : "Unknown bootstrap error.",
+      message:
+        error instanceof Error ? error.message : "Unknown bootstrap error.",
     });
     process.exit(1);
   });
