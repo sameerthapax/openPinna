@@ -5,6 +5,38 @@ export const processingLogPrefix = "[openPinna][processing]";
 export const processingJobTypeSchema = z.enum(["process_note_knowledge_base"]);
 export type ProcessingJobType = z.infer<typeof processingJobTypeSchema>;
 
+export const noteProcessingStepSchema = z.enum([
+  "retrieval",
+  "screenshot_ocr",
+  "screenshot_finalize_info",
+  "knowledge_upsert",
+]);
+export type NoteProcessingStep = z.infer<typeof noteProcessingStepSchema>;
+
+const screenshotChunkSnapshotSchema = z.object({
+  id: z.string().uuid(),
+  chunkIndex: z.number().int().nonnegative(),
+  filePath: z.string().trim(),
+  pageUrl: z.string().trim().nullable(),
+  pageTitle: z.string().trim().nullable(),
+});
+
+const retrievalSnapshotSchema = z.object({
+  noteId: z.string().uuid(),
+  sourceId: z.string().uuid().nullable(),
+  captureId: z.string().uuid().nullable(),
+  voiceSessionId: z.string().uuid().nullable(),
+  voiceAudioId: z.string().uuid().nullable(),
+  screenshotSessionId: z.string().uuid().nullable(),
+  sourceUrl: z.string().trim().nullable(),
+  sourceTitle: z.string().trim().nullable(),
+  selectedText: z.string().nullable(),
+  userCommentary: z.string().nullable(),
+  transcriptText: z.string().nullable(),
+  orderedScreenshotChunks: z.array(screenshotChunkSnapshotSchema).default([]),
+  selectedScreenshotChunks: z.array(screenshotChunkSnapshotSchema).default([]),
+});
+
 export const processingJobPayloadSchema = z.object({
   sourceUrl: z.string().trim().nullable().optional(),
   pageTitle: z.string().trim().nullable().optional(),
@@ -15,6 +47,11 @@ export const processingJobPayloadSchema = z.object({
   screenshotId: z.string().uuid().nullable().optional(),
   audioId: z.string().uuid().nullable().optional(),
   captureIds: z.array(z.string().uuid()).default([]),
+  currentStep: noteProcessingStepSchema.default("retrieval"),
+  selectedScreenshotChunkIds: z.array(z.string().uuid()).default([]),
+  selectedScreenshotChunkCount: z.number().int().nonnegative().default(0),
+  lastProcessedChunkIndex: z.number().int().nonnegative().nullable().optional(),
+  retrievalSnapshot: retrievalSnapshotSchema.nullable().optional(),
 });
 export type ProcessingJobPayload = z.infer<typeof processingJobPayloadSchema>;
 
@@ -42,12 +79,30 @@ export const processingJobRecordSchema = z.object({
 });
 export type ProcessingJobRecord = z.infer<typeof processingJobRecordSchema>;
 
+export class DeferredProcessingError extends Error {
+  runAfter: Date;
+
+  constructor(message: string, runAfter?: Date) {
+    super(message);
+    this.name = "DeferredProcessingError";
+    this.runAfter = runAfter ?? new Date(Date.now() + 60 * 1000);
+  }
+}
+
 export const extractedScreenshotSchema = z.object({
   extractedText: z.string().trim().default(""),
-  importantText: z.string().trim().default(""),
   model: z.string().trim().min(1),
 });
 export type ExtractedScreenshot = z.infer<typeof extractedScreenshotSchema>;
+
+export const finalizedScreenshotInfoSchema = z.object({
+  finalizedSummary: z.string().trim().default(""),
+  importantContext: z.string().trim().default(""),
+  model: z.string().trim().min(1),
+});
+export type FinalizedScreenshotInfo = z.infer<
+  typeof finalizedScreenshotInfoSchema
+>;
 
 export const sourceMetadataSummarySchema = z.object({
   title: z.string().trim().nullable(),

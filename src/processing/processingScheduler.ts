@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
 import {
   claimProcessingJobs,
+  deferProcessingJob,
   markProcessingJobFailed,
   markProcessingJobSucceeded,
 } from "@/src/processing/processingJobRepository";
 import { processNoteKnowledgeJob } from "@/src/processing/workers/noteKnowledgeWorker";
-import { ProcessingJobRecord, processingLogPrefix } from "@/src/processing/processingTypes";
+import {
+  DeferredProcessingError,
+  ProcessingJobRecord,
+  processingLogPrefix,
+} from "@/src/processing/processingTypes";
 
 const schedulerIntervalMs = 5 * 60 * 1000;
 
@@ -19,7 +24,9 @@ async function runJob(job: ProcessingJobRecord) {
   }
 }
 
-export async function runProcessingSchedulerOnce(workerId = `processing-worker-${randomUUID()}`) {
+export async function runProcessingSchedulerOnce(
+  workerId = `processing-worker-${randomUUID()}`,
+) {
   const jobs = await claimProcessingJobs(5, workerId);
 
   if (jobs.length === 0) {
@@ -50,7 +57,21 @@ export async function runProcessingSchedulerOnce(workerId = `processing-worker-$
         jobId: job.id,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Processing job failed.";
+      if (error instanceof DeferredProcessingError) {
+        await deferProcessingJob(job, error);
+
+        console.info(`${processingLogPrefix} job deferred`, {
+          workerId,
+          jobId: job.id,
+          jobType: job.jobType,
+          runAfter: error.runAfter.toISOString(),
+          message: error.message,
+        });
+        continue;
+      }
+
+      const message =
+        error instanceof Error ? error.message : "Processing job failed.";
 
       console.error(`${processingLogPrefix} job failed`, {
         workerId,
@@ -67,12 +88,16 @@ export async function runProcessingSchedulerOnce(workerId = `processing-worker-$
   return { workerId, processedCount: jobs.length };
 }
 
-export function startProcessingScheduler(workerId = `processing-worker-${randomUUID()}`) {
+export function startProcessingScheduler(
+  workerId = `processing-worker-${randomUUID()}`,
+) {
   let isRunning = false;
 
   const tick = async () => {
     if (isRunning) {
-      console.info(`${processingLogPrefix} skip overlapping tick`, { workerId });
+      console.info(`${processingLogPrefix} skip overlapping tick`, {
+        workerId,
+      });
       return;
     }
 
@@ -82,7 +107,8 @@ export function startProcessingScheduler(workerId = `processing-worker-${randomU
     } catch (error) {
       console.error(`${processingLogPrefix} scheduler tick failed`, {
         workerId,
-        message: error instanceof Error ? error.message : "Unknown scheduler error.",
+        message:
+          error instanceof Error ? error.message : "Unknown scheduler error.",
       });
     } finally {
       isRunning = false;

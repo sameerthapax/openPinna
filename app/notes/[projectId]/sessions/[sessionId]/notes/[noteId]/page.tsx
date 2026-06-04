@@ -7,6 +7,36 @@ import {
 } from "@/components/notes/NoteKnowledgeBuildPanel";
 import { NotePinnaBoard } from "@/components/notes/NotePinnaBoard";
 
+function normalizeAuthorList(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value
+      .split(/,|;|\band\b/gi)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((entry) => {
+        if (typeof entry === "string") return [entry.trim()];
+        if (entry && typeof entry === "object") {
+          const record = entry as Record<string, unknown>;
+          const nested =
+            record.name ||
+            record.fullName ||
+            record.author ||
+            record.creator ||
+            record.family;
+          return typeof nested === "string" ? [nested.trim()] : [];
+        }
+        return [];
+      })
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
 export default async function NoteResearchPage({ params }: { params: Promise<{ projectId: string; sessionId: string; noteId: string }> }) {
   const { projectId, sessionId, noteId } = await params;
 
@@ -43,11 +73,28 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
     note.source?.metadata && typeof note.source.metadata === "object" && !Array.isArray(note.source.metadata)
       ? (note.source.metadata as Record<string, unknown>)
       : {};
-  const authors = Array.isArray(note.source?.authors)
-    ? note.source.authors
-        .map((author) => (typeof author === "string" ? author : ""))
-        .filter(Boolean)
-    : [];
+  const knowledgeAuthors = normalizeAuthorList(note.linkedNoteKnowledge?.authors ?? note.noteKnowledge?.authors);
+  const metadataAuthors =
+    [
+      sourceMetadata.authors,
+      sourceMetadata.author,
+      sourceMetadata.creators,
+      sourceMetadata.creator,
+      sourceMetadata.byline,
+    ]
+      .map((value) => normalizeAuthorList(value))
+      .find((entries) => entries.length > 0) || [];
+  const authors = Array.from(
+    new Set([
+      ...knowledgeAuthors,
+      ...(Array.isArray(note.source?.authors)
+        ? note.source.authors
+            .map((author) => (typeof author === "string" ? author.trim() : ""))
+            .filter(Boolean)
+        : []),
+      ...metadataAuthors,
+    ]),
+  );
   const voiceAudioUrl = note.voiceAudio?.fullAudioPath ? `/api/voice-audios/${note.voiceAudio.id}` : null;
   const captureUrl = note.capture ? `/api/captures/${note.capture.id}` : null;
   const captureType = note.capture?.artifactType || "screenshot";
@@ -60,14 +107,14 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
 
   return (
     <div className="space-y-6 pb-16">
-      <section className="border border-[var(--border)] bg-[var(--surface)] p-6 md:p-8">
-        <div className="space-y-3 border-b border-[var(--border)] pb-7">
+      <section className="rounded-[2rem] border border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] bg-[color-mix(in_srgb,var(--surface)_90%,var(--pastel-yellow)_10%)] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.42)] md:p-8">
+        <div className="space-y-3 border-b border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] pb-7">
           <p className="font-mono-ui text-[11px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Note research board</p>
           <h1 className="font-editorial text-5xl tracking-[-0.04em]">{note.session.project.title}</h1>
           <p className="text-xl text-[var(--muted-foreground)]">Session: {sessionDateLabel} · Note: {noteTitle}</p>
         </div>
 
-        <div className="mt-6 grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.85fr)_minmax(360px,0.95fr)]">
+        <div className="mt-6 grid items-stretch grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.85fr)_minmax(360px,0.95fr)]">
           <NotePinnaBoard
             noteId={note.id}
             noteTitle={noteTitle}

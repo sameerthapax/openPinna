@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
 import {
+  DeferredProcessingError,
   EnqueueProcessingJobInput,
   ProcessingJobPayload,
   ProcessingJobRecord,
@@ -24,6 +25,11 @@ function normalizePayload(payload: ProcessingJobPayload) {
     screenshotId: payload.screenshotId ?? null,
     audioId: payload.audioId ?? null,
     captureIds: payload.captureIds ?? [],
+    currentStep: payload.currentStep ?? "retrieval",
+    selectedScreenshotChunkIds: payload.selectedScreenshotChunkIds ?? [],
+    selectedScreenshotChunkCount: payload.selectedScreenshotChunkCount ?? 0,
+    lastProcessedChunkIndex: payload.lastProcessedChunkIndex ?? null,
+    retrievalSnapshot: payload.retrievalSnapshot ?? null,
   });
 }
 
@@ -51,7 +57,9 @@ function parseJobRecord(record: {
 }) {
   return processingJobRecordSchema.parse({
     ...record,
-    payload: normalizePayload(processingJobPayloadSchema.parse(record.payload ?? {})),
+    payload: normalizePayload(
+      processingJobPayloadSchema.parse(record.payload ?? {}),
+    ),
   });
 }
 
@@ -79,25 +87,29 @@ function buildMergeData(input: EnqueueProcessingJobInput) {
   };
 }
 
-async function findExistingJob(client: DbClient, input: EnqueueProcessingJobInput) {
-  const filters: Prisma.ProcessingJobOutboxWhereInput[] = [];
-
+async function findExistingJob(
+  client: DbClient,
+  input: EnqueueProcessingJobInput,
+) {
   if (input.noteId) {
-    filters.push({ noteId: input.noteId, jobType: input.jobType });
+    return client.processingJobOutbox.findFirst({
+      where: {
+        jobType: input.jobType,
+        noteId: input.noteId,
+      },
+    });
   }
 
   if (input.voiceSessionId) {
-    filters.push({ voiceSessionId: input.voiceSessionId, jobType: input.jobType });
+    return client.processingJobOutbox.findFirst({
+      where: {
+        jobType: input.jobType,
+        voiceSessionId: input.voiceSessionId,
+      },
+    });
   }
 
-  if (filters.length === 0) {
-    return null;
-  }
-
-  return client.processingJobOutbox.findFirst({
-    where: { OR: filters },
-    orderBy: { createdAt: "asc" },
-  });
+  return null;
 }
 
 // The outbox holds only active work, so enqueue updates matching rows instead of creating duplicates.
@@ -323,7 +335,9 @@ export async function deleteOutboxJob(jobId: string, client: DbClient = db) {
   });
 }
 
-export async function markProcessingJobSucceeded(job: ProcessingJobRecord, _client: DbClient = db) {
+export async function markProcessingJobSucceeded(
+  job: ProcessingJobRecord,
+) {
   console.info(`${processingLogPrefix} mark job succeeded`, {
     jobId: job.id,
     jobType: job.jobType,
@@ -375,6 +389,32 @@ export async function markProcessingJobFailed(
       lockedAt: null,
       lockedBy: null,
       lastError: error,
+      updatedAt: new Date(),
+    },
+  });
+}
+
+export async function deferProcessingJob(
+  job: ProcessingJobRecord,
+  deferred: DeferredProcessingError,
+  client: DbClient = db,
+) {
+  console.info(`${processingLogPrefix} defer job`, {
+    jobId: job.id,
+    jobType: job.jobType,
+    runAfter: deferred.runAfter.toISOString(),
+    message: deferred.message,
+  });
+
+  await client.processingJobOutbox.update({
+    where: { id: job.id },
+    data: {
+      status: "pending",
+      runAfter: deferred.runAfter,
+      attempts: Math.max(0, job.attempts - 1),
+      lockedAt: null,
+      lockedBy: null,
+      lastError: deferred.message,
       updatedAt: new Date(),
     },
   });
