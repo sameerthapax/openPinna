@@ -2,6 +2,12 @@ import { db } from "@/lib/db";
 import { threadMemoryQueue } from "@/app/api/_lib/queues";
 import { generateAssistantReply, parseToolDirective } from "@/app/api/_lib/ai";
 import { getPinnaTemplateByKey } from "@/app/api/_lib/services/pinna.service";
+import { createThreadKnowledgeEvent } from "@/app/api/_lib/services/knowledge.service";
+import {
+  createPinnaWithThread,
+  ensurePinnaForThread,
+  PinnaBaseSelection,
+} from "@/app/api/_lib/services/pinna-instance.service";
 import {
   executeTool,
   getAllowedToolsForAgent,
@@ -14,6 +20,7 @@ export async function createThread(input: {
   sessionId: string;
   noteId: string;
   pinnaTemplateKey: string;
+  baseSelection: PinnaBaseSelection;
   title?: string | null;
   customInstructions?: string | null;
 }) {
@@ -22,16 +29,15 @@ export async function createThread(input: {
     throw new Error("Pinna template not found.");
   }
 
-  return db.chatThread.create({
-    data: {
-      projectId: input.projectId,
-      sessionId: input.sessionId,
-      noteId: input.noteId,
-      pinnaTemplateId: template.id,
-      threadType: template.key,
-      title: input.title || template.defaultTitle || null,
-      customInstructions: input.customInstructions || null,
-    },
+  return createPinnaWithThread({
+    projectId: input.projectId,
+    sessionId: input.sessionId,
+    noteId: input.noteId,
+    pinnaTemplateId: template.id,
+    pinnaTemplateKey: template.key,
+    baseSelection: input.baseSelection,
+    title: input.title || template.defaultTitle || null,
+    customInstructions: input.customInstructions || null,
   });
 }
 
@@ -40,16 +46,25 @@ export async function listThreadsByNote(noteId: string) {
 }
 
 export async function getThread(threadId: string) {
+  await ensurePinnaForThread(threadId);
+
   return db.chatThread.findUnique({
     where: { id: threadId },
-    include: { messages: true, pinnaTemplate: true },
+    include: { messages: true, pinnaTemplate: true, pinna: true },
   });
 }
 
 export async function sendMessage(threadId: string, userMessage: string) {
+  await ensurePinnaForThread(threadId);
+
   const thread = await db.chatThread.findUnique({
     where: { id: threadId },
     include: {
+      pinna: {
+        include: {
+          selectedBaseKnowledgeVersion: true,
+        },
+      },
       pinnaTemplate: true,
       note: { include: { source: true, capture: true } },
       messages: { orderBy: { createdAt: "desc" }, take: 12 },
@@ -63,6 +78,17 @@ export async function sendMessage(threadId: string, userMessage: string) {
 
   const savedUser = await db.chatMessage.create({
     data: { threadId, role: "user", content: userMessage },
+  });
+  await createThreadKnowledgeEvent({
+    threadId,
+    eventType: "user_message",
+    actor: "user",
+    messageRef: savedUser.id,
+    content: userMessage,
+    payload: {
+      role: "user",
+      content: userMessage,
+    } as Prisma.InputJsonValue,
   });
 
   let toolResult: { toolKey: string; output?: unknown; error?: string } | null = null;
@@ -155,6 +181,17 @@ export async function sendMessage(threadId: string, userMessage: string) {
 
   const savedAssistant = await db.chatMessage.create({
     data: { threadId, role: "assistant", content: assistant },
+  });
+  await createThreadKnowledgeEvent({
+    threadId,
+    eventType: "assistant_message",
+    actor: "assistant",
+    messageRef: savedAssistant.id,
+    content: assistant,
+    payload: {
+      role: "assistant",
+      content: assistant,
+    } as Prisma.InputJsonValue,
   });
 
   await threadMemoryQueue.add("thread-memory-refresh", { threadId: thread.id });

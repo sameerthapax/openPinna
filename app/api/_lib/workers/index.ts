@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import {
   buildThreadKnowledgeSnapshot,
   createKnowledgeEvent,
+  createThreadKnowledgeEvent,
   rebuildNoteSummary,
   rebuildProjectSummary,
   rebuildSessionSummary,
@@ -11,7 +12,6 @@ import {
   noteMemoryQueue,
   projectMemoryQueue,
   sessionMemoryQueue,
-  threadMemoryQueue,
 } from "@/app/api/_lib/queues";
 import { summarizeText } from "@/app/api/_lib/ai";
 
@@ -44,10 +44,7 @@ new Worker(
       },
     });
 
-    await createKnowledgeEvent({
-      projectId: thread.projectId,
-      sessionId: thread.sessionId,
-      noteId: thread.noteId,
+    await createThreadKnowledgeEvent({
       threadId: thread.id,
       eventType: "thread_summary_updated",
       content: summary,

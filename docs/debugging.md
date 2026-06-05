@@ -888,3 +888,48 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 ## Final Result
 
 - Screenshot chunk metadata now stays integer-safe on sites that expose fractional scroll values, so the upload route should stop rejecting normal webpage captures with `Expected integer, received float`.
+
+## New Issue
+
+- Pinna identity and note knowledge versioning were still centered on `ChatThread` and a mutable singleton `NoteKnowledge` row, so each pinna did not have its own first-class versioned knowledge lineage.
+- Local verification could not produce a normal Prisma `migrate dev` artifact because the configured Postgres instance at `localhost:9001` was unreachable from this environment.
+
+## Suspected Cause
+
+- Earlier architecture introduced thread-scoped knowledge builds before pinna became a first-class entity, leaving base note knowledge and derived pinna knowledge split across incompatible ownership models.
+- The local database/container expected by `DATABASE_URL` was not accepting connections during migration generation.
+
+## Files Touched
+
+- `prisma/schema.prisma`
+- `prisma/migrations/20260604120000_pinna_note_base_versioning/migration.sql`
+- `app/api/_lib/services/pinna-instance.service.ts`
+- `app/api/_lib/services/chat.service.ts`
+- `app/api/_lib/services/knowledge.service.ts`
+- `app/api/_lib/services/note.service.ts`
+- `app/api/_lib/workers/index.ts`
+- `src/processing/workers/noteKnowledgeWorker.ts`
+- `app/api/notes/[noteId]/threads/route.ts`
+- `app/api/_lib/validation.ts`
+- `app/notes/[projectId]/sessions/[sessionId]/notes/[noteId]/page.tsx`
+- `components/notes/NotePinnaBoard.tsx`
+- `components/navigation/GlobalNavControls.tsx`
+- `components/notes/NoteKnowledgeBuildPanel.tsx`
+
+## Fix Attempted
+
+- Added first-class `Pinna`, immutable `NoteBaseKnowledgeVersion`, `NoteBaseKnowledgeHead`, and pinna-owned knowledge event/build/head/node/edge/summary models in Prisma.
+- Added a compatibility service that backfills note base heads from legacy `NoteKnowledge` rows and materializes `Pinna` records for legacy threads on demand.
+- Updated note processing so each note knowledge regeneration creates a new immutable base version and advances the note head while still updating legacy `NoteKnowledge` as a compatibility cache.
+- Updated pinna creation to require a resolved note base version and added frontend base selection between the first and current note base when multiple versions exist.
+- Updated board/chat flows so layout is keyed by `pinna.id`, while conversation transport still uses the attached `threadId`.
+- Redirected thread message events and build snapshots into pinna-owned knowledge events and pinna knowledge builds.
+- Generated a Prisma schema diff SQL migration from the previous checked-in schema because live `migrate dev` could not connect to the configured Postgres instance.
+
+## Final Result
+
+- The app now treats `Pinna` as the first-class knowledge owner.
+- Notes now accumulate immutable base knowledge versions with a current head pointer.
+- New pinnas bind to an explicit note base version at creation time and maintain their own versioned derived knowledge lineage on top of that base.
+- TypeScript compiles successfully with the new model and UI flow.
+- Full Prisma migration application against a live database is still pending because `localhost:9001` was unreachable during this task.

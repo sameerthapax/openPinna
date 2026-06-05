@@ -17,6 +17,14 @@ type PinnaTemplate = {
   description: string | null;
 };
 
+type BaseVersionOption = {
+  id: string;
+  version: number;
+  title: string | null;
+  summary: string | null;
+  createdAt: string;
+};
+
 function parsePath(pathname: string) {
   const projectMatch = pathname.match(/^\/notes\/([^/]+)$/);
   const sessionMatch = pathname.match(/^\/notes\/([^/]+)\/sessions\/([^/]+)$/);
@@ -46,6 +54,12 @@ export function GlobalNavControls() {
   const [pinnaMenuOpen, setPinnaMenuOpen] = useState(false);
   const [pinnaLoading, setPinnaLoading] = useState(false);
   const [pinnaTemplates, setPinnaTemplates] = useState<PinnaTemplate[]>([]);
+  const [pinnaBasePrompt, setPinnaBasePrompt] = useState<{
+    template: PinnaTemplate;
+    currentVersion: BaseVersionOption | null;
+    firstVersion: BaseVersionOption | null;
+    versionCount: number;
+  } | null>(null);
   const [mounted, setMounted] = useState(false);
   const [sessionExistsMessage, setSessionExistsMessage] = useState("");
   const [todaySessionHref, setTodaySessionHref] = useState<string | null>(null);
@@ -156,6 +170,52 @@ export function GlobalNavControls() {
     }
   }
 
+  async function createPinnaFromTemplate(
+    template: PinnaTemplate,
+    baseSelection: "current" | "first",
+  ) {
+    if (!noteId || pinnaLoading) return;
+
+    setPinnaLoading(true);
+    try {
+      const response = await fetch(`/api/notes/${noteId}/threads`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pinnaTemplateKey: template.key,
+          title: template.defaultTitle || template.name,
+          baseSelection,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok || !payload?.pinna || !payload?.thread) return;
+      window.dispatchEvent(
+        new CustomEvent("add-pinna", {
+          detail: {
+            pinna: {
+              id: payload.pinna.id,
+              threadId: payload.thread.id,
+              threadType: payload.thread.threadType,
+              title: payload.pinna.title || payload.thread.title,
+              baseVersion: payload.baseVersion
+                ? {
+                    id: payload.baseVersion.id,
+                    version: payload.baseVersion.version,
+                    title: payload.baseVersion.title,
+                  }
+                : null,
+              messages: [],
+            },
+          },
+        }),
+      );
+    } finally {
+      setPinnaLoading(false);
+      setPinnaBasePrompt(null);
+      setPinnaMenuOpen(false);
+    }
+  }
+
   return (
     <>
       <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
@@ -179,34 +239,27 @@ export function GlobalNavControls() {
                     className="block w-full border border-transparent px-3 py-2 text-left text-sm transition-colors hover:border-[var(--border)] hover:bg-[var(--surface-soft)]"
                     onClick={async () => {
                       if (!noteId || pinnaLoading) return;
-                      setPinnaLoading(true);
                       try {
                         const response = await fetch(`/api/notes/${noteId}/threads`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            pinnaTemplateKey: template.key,
-                            title: template.defaultTitle || template.name,
-                          }),
+                          cache: "no-store",
                         });
                         const payload = await response.json();
-                        if (!response.ok || !payload?.ok || !payload?.thread) return;
-                        window.dispatchEvent(
-                          new CustomEvent("add-pinna", {
-                            detail: {
-                              thread: {
-                                id: payload.thread.id,
-                                threadType: payload.thread.threadType,
-                                title: payload.thread.title,
-                                messages: [],
-                              },
-                            },
-                          }),
-                        );
-                      } finally {
+                        if (!response.ok || !payload?.ok) return;
+                        const versionCount = payload?.baseKnowledge?.versions?.length || 0;
+                        if (versionCount > 1) {
+                          setPinnaBasePrompt({
+                            template,
+                            currentVersion: payload.baseKnowledge.currentVersion || null,
+                            firstVersion: payload.baseKnowledge.firstVersion || null,
+                            versionCount,
+                          });
+                          setPinnaMenuOpen(false);
+                          return;
+                        }
+                        await createPinnaFromTemplate(template, "current");
+                      } catch {
                         setPinnaLoading(false);
                       }
-                      setPinnaMenuOpen(false);
                     }}
                   >
                     <span className="block font-medium text-[var(--foreground)]">
@@ -291,6 +344,78 @@ export function GlobalNavControls() {
                     {scope === "note" ? <><textarea name="body" required placeholder="Captured knowledge" className="min-h-24 w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /><input name="sourceUrl" placeholder="Source URL" className="w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /><input name="sourceTitle" placeholder="Source title" className="w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /><textarea name="selectedText" placeholder="Selected text" className="min-h-20 w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /><input name="tags" placeholder="tag1, tag2" className="w-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-foreground)] focus-visible:focus-ring" /></> : null}
                     <button disabled={submitting} type="submit" className="btn-primary mt-2 rounded-[6px] px-3 py-2 text-sm font-medium disabled:opacity-70">{submitting ? "Saving..." : "Save"}</button>
                   </form>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {mounted && pinnaBasePrompt
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-30 bg-[var(--overlay-bg)] backdrop-blur-[3px]"
+              onMouseDown={() => setPinnaBasePrompt(null)}
+            >
+              <div className="mx-auto flex h-full max-w-5xl items-center justify-center px-4 py-8">
+                <div
+                  className="w-full max-w-3xl rounded-[1.6rem] border border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] bg-[color-mix(in_srgb,var(--surface)_96%,var(--pastel-yellow)_4%)] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.44)]"
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  <div className="flex items-start justify-between gap-4 border-b border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] pb-5">
+                    <div>
+                      <p className="font-mono-ui text-[10px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                        Choose base knowledge
+                      </p>
+                      <h3 className="mt-2 font-editorial text-3xl tracking-[-0.04em] text-[var(--foreground)]">
+                        {pinnaBasePrompt.template.defaultTitle || pinnaBasePrompt.template.name}
+                      </h3>
+                      <p className="mt-2 max-w-[58ch] text-sm leading-7 text-[var(--muted-foreground)]">
+                        This note has {pinnaBasePrompt.versionCount} base knowledge versions. Choose which shared note base this pinna should inherit before it begins its own build history.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPinnaBasePrompt(null)}
+                      className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs tracking-[0.08em] transition-colors hover:bg-[var(--surface-soft)]"
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  <div className="mt-5 grid gap-4 md:grid-cols-2">
+                    {[
+                      {
+                        key: "current" as const,
+                        label: "Current base",
+                        tone: "bg-[var(--pastel-green)] text-[var(--pastel-green-text)]",
+                        record: pinnaBasePrompt.currentVersion,
+                      },
+                      {
+                        key: "first" as const,
+                        label: "First base",
+                        tone: "bg-[var(--pastel-yellow)] text-[var(--pastel-yellow-text)]",
+                        record: pinnaBasePrompt.firstVersion,
+                      },
+                    ].map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => void createPinnaFromTemplate(pinnaBasePrompt.template, option.key)}
+                        className="group rounded-[1.25rem] border border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] bg-[var(--surface)] p-5 text-left transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-[1px] hover:bg-[var(--surface-soft)] active:scale-[0.98]"
+                      >
+                        <span className={`inline-flex rounded-full px-3 py-1 font-mono-ui text-[10px] uppercase tracking-[0.16em] ${option.tone}`}>
+                          {option.label}
+                        </span>
+                        <h4 className="mt-4 text-lg font-semibold tracking-[-0.02em] text-[var(--foreground)]">
+                          Version {option.record?.version ?? "N/A"}
+                        </h4>
+                        <p className="mt-2 text-sm leading-7 text-[var(--muted-foreground)]">
+                          {option.record?.title || option.record?.summary || "No summary available for this base version."}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>,

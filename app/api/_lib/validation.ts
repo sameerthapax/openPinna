@@ -127,6 +127,7 @@ export const voiceScreenshotChunkMetadataSchema = z.object({
 export const createThreadSchema = z.object({
   pinnaTemplateKey: z.string().trim().min(1).optional(),
   threadType: z.string().trim().min(1).optional(),
+  baseSelection: z.enum(["current", "first"]).optional().default("current"),
   title: z.string().trim().optional().nullable(),
   customInstructions: z.string().trim().optional().nullable(),
 }).refine((value) => Boolean(value.pinnaTemplateKey || value.threadType), {

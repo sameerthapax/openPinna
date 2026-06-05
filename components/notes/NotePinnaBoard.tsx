@@ -6,17 +6,29 @@ import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 type PinnaSeed = {
   id: string;
+  threadId: string;
   question: string;
   title?: string | null;
+  baseVersion?: {
+    id: string;
+    version: number;
+    title: string | null;
+  } | null;
   messages?: Array<{ id: string; role: string; content: string }>;
 };
 
 type PinnaNode = {
   id: string;
+  threadId: string;
   question: string;
   x: number;
   y: number;
   title?: string | null;
+  baseVersion?: {
+    id: string;
+    version: number;
+    title: string | null;
+  } | null;
   messages: Array<{ id: string; role: string; content: string }>;
 };
 
@@ -118,7 +130,7 @@ export function NotePinnaBoard({
   sourceDetails,
   voiceRecording,
   captureArtifact,
-  initialThreads,
+  initialPinnas,
   initialLayout,
 }: {
   noteId: string;
@@ -129,7 +141,7 @@ export function NotePinnaBoard({
   sourceDetails: SourceDetails;
   voiceRecording: VoiceRecording | null;
   captureArtifact: CaptureArtifact | null;
-  initialThreads: PinnaSeed[];
+  initialPinnas: PinnaSeed[];
   initialLayout?: PinnaLayout | null;
 }) {
   const boardRef = useRef<HTMLDivElement | null>(null);
@@ -154,22 +166,24 @@ export function NotePinnaBoard({
     const savedPositions = new Map(
       (initialLayout?.nodes || []).map((entry) => [entry.id, { x: entry.x, y: entry.y }]),
     );
-    const next = initialThreads.slice(0, 5).map((thread, index) => {
-      const saved = savedPositions.get(thread.id);
+    const next = initialPinnas.slice(0, 5).map((pinna, index) => {
+      const saved = savedPositions.get(pinna.id);
       return {
-        id: thread.id,
-        question: thread.title || thread.question,
-        title: thread.title,
+        id: pinna.id,
+        threadId: pinna.threadId,
+        question: pinna.title || pinna.question,
+        title: pinna.title,
+        baseVersion: pinna.baseVersion || null,
         x: saved?.x ?? 60 + index * 48,
         y: saved?.y ?? 48 + index * 42,
-        messages: thread.messages || [],
+        messages: pinna.messages || [],
       };
     });
 
     setNodes(next);
     setZoom(initialLayout?.zoom && initialLayout.zoom > 0 ? initialLayout.zoom : 1);
     hasHydratedRef.current = true;
-  }, [initialThreads, initialLayout]);
+  }, [initialPinnas, initialLayout]);
 
   useEffect(() => {
     if (sceneWidth <= 0 || sceneHeight <= 0) return;
@@ -208,11 +222,18 @@ export function NotePinnaBoard({
   useEffect(() => {
     const handler = (event: Event) => {
       const custom = event as CustomEvent<{
-        thread?: { id: string; threadType?: string; title?: string | null; messages?: Array<{ id: string; role: string; content: string }> };
+        pinna?: {
+          id: string;
+          threadId: string;
+          threadType?: string;
+          title?: string | null;
+          baseVersion?: { id: string; version: number; title: string | null } | null;
+          messages?: Array<{ id: string; role: string; content: string }>;
+        };
       }>;
-      const thread = custom.detail?.thread;
-      if (!thread?.id) return;
-      const question = thread.title || thread.threadType || "Pinna";
+      const pinna = custom.detail?.pinna;
+      if (!pinna?.id) return;
+      const question = pinna.title || pinna.threadType || "Pinna";
 
       setNodes((current) => {
         const angle = current.length * 0.8;
@@ -223,12 +244,14 @@ export function NotePinnaBoard({
         return [
           ...current,
           {
-            id: thread.id,
+            id: pinna.id,
+            threadId: pinna.threadId,
             question,
-            title: thread.title || question,
+            title: pinna.title || question,
+            baseVersion: pinna.baseVersion || null,
             x: Math.max(24, cx - nodeWidth / 2),
             y: Math.max(24, cy - nodeHeight / 2),
-            messages: thread.messages || [],
+            messages: pinna.messages || [],
           },
         ];
       });
@@ -461,7 +484,11 @@ export function NotePinnaBoard({
             >
               <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Pinna</p>
               <h3 className="mt-2 text-base font-semibold leading-6">{node.question}</h3>
-              <p className="mt-2 line-clamp-3 text-xs text-[var(--muted-foreground)]">Drag to reposition. Click to open chat.</p>
+              <p className="mt-2 line-clamp-2 text-xs text-[var(--muted-foreground)]">
+                {node.baseVersion
+                  ? `Base v${node.baseVersion.version}. Drag to reposition. Click to open chat.`
+                  : "Drag to reposition. Click to open chat."}
+              </p>
             </button>
           ))}
         </div>
@@ -499,13 +526,18 @@ export function NotePinnaBoard({
             }
           }}
         >
-          <div className="mx-auto flex h-full max-w-[1600px] items-center justify-center px-4 py-6 sm:px-6">
-            <div className="h-[80dvh] w-[80vw] min-w-[320px] max-w-[1400px] rounded-[28px] border border-white/20 bg-[rgba(242,242,242,0.72)] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.34)] backdrop-blur-3xl dark:bg-[rgba(24,22,19,0.7)] sm:p-7">
+          <div className="mx-auto flex h-full max-w-[1700px] items-center justify-center px-4 py-4 sm:px-6 sm:py-5">
+            <div className="flex h-[88dvh] w-full max-w-[1500px] min-w-0 flex-col rounded-[28px] border border-white/20 bg-[rgba(242,242,242,0.72)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.34)] backdrop-blur-3xl dark:bg-[rgba(24,22,19,0.7)] sm:p-7">
               <LoadingOverlay active={sending} label="Pinna is responding..." fullScreen={false} zIndexClass="z-10" />
               <div className="mb-5 flex items-start justify-between border-b border-[var(--border)]/70 pb-5">
                 <div>
                   <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Pinna chat</p>
                   <h3 className="mt-2 text-2xl font-semibold tracking-[-0.02em] sm:text-3xl">{activeNode.question}</h3>
+                  {activeNode.baseVersion ? (
+                    <p className="mt-2 text-xs uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+                      Built from note base version {activeNode.baseVersion.version}
+                    </p>
+                  ) : null}
                 </div>
                 <button
                   type="button"
@@ -516,8 +548,8 @@ export function NotePinnaBoard({
                 </button>
               </div>
 
-              <div className="grid h-[calc(100%-88px)] min-h-0 grid-cols-1 gap-4 lg:grid-cols-[1.7fr_1fr]">
-                <div className="flex min-h-0 flex-col border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
+              <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]">
+                <div className="flex min-h-0 min-w-0 flex-col border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
                   <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 sm:pr-2">
                     {activeNode.messages.map((message) => (
                       <div
@@ -532,7 +564,7 @@ export function NotePinnaBoard({
                       </div>
                     ))}
                   </div>
-                  <div className="mt-5 shrink-0 flex items-end gap-3 border-t border-[var(--border)] pt-5">
+                  <div className="mt-5 shrink-0 min-w-0 flex items-end gap-3 border-t border-[var(--border)] pt-5">
                     <textarea
                       ref={inputRef}
                       value={draftMessage}
@@ -580,7 +612,7 @@ export function NotePinnaBoard({
                         requestAnimationFrame(resizeComposer);
 
                         try {
-                          const response = await fetch(`/api/threads/${activeNode.id}/messages`, {
+                          const response = await fetch(`/api/threads/${activeNode.threadId}/messages`, {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ userMessage: messagePayload }),
@@ -637,7 +669,7 @@ export function NotePinnaBoard({
                   </div>
                 </div>
 
-                <aside className="min-h-0 overflow-y-auto border border-[var(--border)] bg-[var(--surface)] p-4">
+                <aside className="min-h-0 min-w-0 overflow-y-auto border border-[var(--border)] bg-[var(--surface)] p-4">
                   <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Context spine</p>
                   <h4 className="mt-2 text-lg font-semibold tracking-[-0.02em]">Live note context</h4>
                   <div className="mt-4 space-y-3 text-sm leading-7 text-[var(--muted-foreground)]">

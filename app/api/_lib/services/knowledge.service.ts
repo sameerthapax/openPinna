@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { summarizeText, maybeEmbed } from "@/app/api/_lib/ai";
 import { updateNoteSummary } from "@/app/api/_lib/services/note.service";
+import { ensurePinnaForThread } from "@/app/api/_lib/services/pinna-instance.service";
 import { updateProjectSummary } from "@/app/api/_lib/services/project.service";
 import { updateSessionSummary } from "@/app/api/_lib/services/session.service";
 import { Prisma } from "@prisma/client";
@@ -62,22 +63,24 @@ export async function createThreadKnowledgeEvent(input: {
   confidenceScore?: number;
   supersedesEventId?: string;
 }) {
+  const pinna = await ensurePinnaForThread(input.threadId);
   const thread = await db.chatThread.findUnique({ where: { id: input.threadId } });
   if (!thread) throw new Error("Thread not found.");
+  if (!pinna) throw new Error("Pinna not found.");
 
   return db.$transaction(async (tx) => {
-    const maxSeq = await tx.knowledgeEvent.aggregate({
-      where: { threadId: input.threadId },
+    const maxSeq = await tx.pinnaKnowledgeEvent.aggregate({
+      where: { pinnaId: pinna.id },
       _max: { seq: true },
     });
     const nextSeq = Number(maxSeq._max.seq ?? 0) + 1;
 
-    return tx.knowledgeEvent.create({
+    return tx.pinnaKnowledgeEvent.create({
       data: {
         projectId: thread.projectId,
         sessionId: thread.sessionId,
         noteId: thread.noteId,
-        threadId: thread.id,
+        pinnaId: pinna.id,
         seq: nextSeq,
         eventType: input.eventType,
         actor: input.actor || "system",
@@ -144,23 +147,30 @@ export async function rebuildNoteSummary(noteId: string) {
 }
 
 export async function buildThreadKnowledgeSnapshot(threadId: string) {
+  const pinna = await ensurePinnaForThread(threadId);
   const thread = await db.chatThread.findUnique({
     where: { id: threadId },
     include: {
       messages: { orderBy: { createdAt: "asc" } },
       note: true,
+      pinna: {
+        include: {
+          selectedBaseKnowledgeVersion: true,
+        },
+      },
     },
   });
   if (!thread) throw new Error("Thread not found.");
+  if (!pinna || !thread.pinna) throw new Error("Pinna not found.");
 
-  const events = await db.knowledgeEvent.findMany({
-    where: { threadId },
+  const events = await db.pinnaKnowledgeEvent.findMany({
+    where: { pinnaId: pinna.id },
     orderBy: [{ seq: "asc" }, { createdAt: "asc" }],
   });
 
-  const head = await db.threadKnowledgeHead.findUnique({ where: { threadId } });
-  const lastVersion = await db.knowledgeBuild.findFirst({
-    where: { threadId },
+  const head = await db.pinnaKnowledgeHead.findUnique({ where: { pinnaId: pinna.id } });
+  const lastVersion = await db.pinnaKnowledgeBuild.findFirst({
+    where: { pinnaId: pinna.id },
     orderBy: { buildVersion: "desc" },
   });
 
@@ -179,9 +189,15 @@ export async function buildThreadKnowledgeSnapshot(threadId: string) {
   );
 
   return db.$transaction(async (tx) => {
-    const build = await tx.knowledgeBuild.create({
+    const build = await tx.pinnaKnowledgeBuild.create({
       data: {
-        threadId,
+        pinnaId: pinna.id,
+        projectId: thread.projectId,
+        sessionId: thread.sessionId,
+        noteId: thread.noteId,
+        baseKnowledgeVersionId:
+          thread.pinna?.selectedBaseKnowledgeVersionId ||
+          pinna.selectedBaseKnowledgeVersionId!,
         buildVersion,
         parentBuildId,
         eventSeqFrom,
@@ -195,12 +211,12 @@ export async function buildThreadKnowledgeSnapshot(threadId: string) {
 
     const nodeByType = new Map<string, string>();
     const upsertNode = async (stableKey: string, nodeType: string, title: string, body: string) => {
-      const node = await tx.knowledgeNode.create({
+      const node = await tx.pinnaKnowledgeNode.create({
         data: {
+          pinnaId: pinna.id,
           projectId: thread.projectId,
           sessionId: thread.sessionId,
           noteId: thread.noteId,
-          threadId: thread.id,
           buildId: build.id,
           stableKey,
           nodeType,
@@ -230,9 +246,9 @@ export async function buildThreadKnowledgeSnapshot(threadId: string) {
       for (const event of events) {
         const eventNodeId = nodeByType.get(`event:${event.id}`);
         if (!eventNodeId) continue;
-        await tx.knowledgeEdge.create({
+        await tx.pinnaKnowledgeEdge.create({
           data: {
-            threadId: thread.id,
+            pinnaId: pinna.id,
             buildId: build.id,
             fromNodeId: summaryNodeId,
             toNodeId: eventNodeId,
@@ -243,10 +259,10 @@ export async function buildThreadKnowledgeSnapshot(threadId: string) {
       }
     }
 
-    await tx.knowledgeSummary.createMany({
+    await tx.pinnaKnowledgeSummary.createMany({
       data: [
         {
-          threadId: thread.id,
+          pinnaId: pinna.id,
           buildId: build.id,
           summaryType: "base",
           content: threadSummary,
@@ -254,7 +270,7 @@ export async function buildThreadKnowledgeSnapshot(threadId: string) {
           generator: "rules-v1",
         },
         {
-          threadId: thread.id,
+          pinnaId: pinna.id,
           buildId: build.id,
           summaryType: "events",
           content: events.map((e) => `#${e.seq} ${e.eventType}: ${e.content}`).join("\n"),
@@ -264,14 +280,14 @@ export async function buildThreadKnowledgeSnapshot(threadId: string) {
       ],
     });
 
-    await tx.threadKnowledgeHead.upsert({
-      where: { threadId: thread.id },
+    await tx.pinnaKnowledgeHead.upsert({
+      where: { pinnaId: pinna.id },
       update: {
         currentBuildId: build.id,
         currentEventSeq: BigInt(eventSeqTo),
       },
       create: {
-        threadId: thread.id,
+        pinnaId: pinna.id,
         currentBuildId: build.id,
         currentEventSeq: BigInt(eventSeqTo),
       },
@@ -282,8 +298,13 @@ export async function buildThreadKnowledgeSnapshot(threadId: string) {
 }
 
 export async function getThreadKnowledge(threadId: string) {
-  const head = await db.threadKnowledgeHead.findUnique({
-    where: { threadId },
+  const pinna = await ensurePinnaForThread(threadId);
+  if (!pinna) {
+    return { head: null, build: null, nodes: [], edges: [], summaries: [] };
+  }
+
+  const head = await db.pinnaKnowledgeHead.findUnique({
+    where: { pinnaId: pinna.id },
     include: { currentBuild: true },
   });
   if (!head?.currentBuildId) {
@@ -291,16 +312,16 @@ export async function getThreadKnowledge(threadId: string) {
   }
 
   const [nodes, edges, summaries] = await Promise.all([
-    db.knowledgeNode.findMany({
-      where: { threadId, buildId: head.currentBuildId },
+    db.pinnaKnowledgeNode.findMany({
+      where: { pinnaId: pinna.id, buildId: head.currentBuildId },
       orderBy: { createdAt: "asc" },
     }),
-    db.knowledgeEdge.findMany({
-      where: { threadId, buildId: head.currentBuildId },
+    db.pinnaKnowledgeEdge.findMany({
+      where: { pinnaId: pinna.id, buildId: head.currentBuildId },
       orderBy: { createdAt: "asc" },
     }),
-    db.knowledgeSummary.findMany({
-      where: { threadId, buildId: head.currentBuildId },
+    db.pinnaKnowledgeSummary.findMany({
+      where: { pinnaId: pinna.id, buildId: head.currentBuildId },
       orderBy: { summaryType: "asc" },
     }),
   ]);

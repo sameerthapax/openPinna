@@ -26,8 +26,13 @@ model Project {
   voiceSessions    VoiceAudioSession[]
   screenshotSessions VoiceScreenshotSession[]
   chatThreads      ChatThread[]
+  pinnas           Pinna[]
   knowledgeEvents  KnowledgeEvent[]
   knowledgeNodes   KnowledgeNode[]
+  noteBaseKnowledgeVersions NoteBaseKnowledgeVersion[]
+  pinnaKnowledgeEvents PinnaKnowledgeEvent[]
+  pinnaKnowledgeBuilds PinnaKnowledgeBuild[]
+  pinnaKnowledgeNodes PinnaKnowledgeNode[]
 
   @@map("projects")
 }
@@ -46,8 +51,13 @@ model Session {
   captures         Capture[]
   notes            Note[]
   chatThreads      ChatThread[]
+  pinnas           Pinna[]
   knowledgeEvents  KnowledgeEvent[]
   knowledgeNodes   KnowledgeNode[]
+  noteBaseKnowledgeVersions NoteBaseKnowledgeVersion[]
+  pinnaKnowledgeEvents PinnaKnowledgeEvent[]
+  pinnaKnowledgeBuilds PinnaKnowledgeBuild[]
+  pinnaKnowledgeNodes PinnaKnowledgeNode[]
 
   @@unique([projectId, sessionKey])
   @@index([projectId, sessionKey])
@@ -81,6 +91,8 @@ model Source {
   captures         Capture[]
   notes            Note[]
   knowledgeNodes   KnowledgeNode[]
+  baseKnowledgeVersions NoteBaseKnowledgeVersion[]
+  pinnaKnowledgeNodes   PinnaKnowledgeNode[]
 
   @@index([projectId])
   @@index([sessionId])
@@ -141,9 +153,15 @@ model Note {
   createdAt              DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime                     @default(now()) @map("updated_at") @db.Timestamptz(6)
   chatThreads            ChatThread[]
+  pinnas                 Pinna[]
   knowledgeEvents        KnowledgeEvent[]
   knowledgeNodes         KnowledgeNode[]
+  pinnaKnowledgeEvents   PinnaKnowledgeEvent[]
+  pinnaKnowledgeBuilds   PinnaKnowledgeBuild[]
+  pinnaKnowledgeNodes    PinnaKnowledgeNode[]
   noteKnowledge          NoteKnowledge?               @relation("NoteKnowledgeOwner")
+  baseKnowledgeVersions  NoteBaseKnowledgeVersion[]
+  baseKnowledgeHead      NoteBaseKnowledgeHead?
   screenshotProcessings  ScreenshotCaptureProcessing[]
 
   @@index([projectId])
@@ -452,11 +470,13 @@ model ChatThread {
   projectId             String                       @map("project_id") @db.Uuid
   sessionId             String                       @map("session_id") @db.Uuid
   noteId                String                       @map("note_id") @db.Uuid
+  pinnaId               String?                      @map("pinna_id") @db.Uuid
   pinnaTemplateId       String?                      @map("pinna_template_id") @db.Uuid
   customInstructions    String?                      @map("custom_instructions") @db.Text
   project               Project                      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   session               Session                      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   note                  Note                         @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  pinna                 Pinna?                       @relation(fields: [pinnaId], references: [id], onDelete: SetNull)
   pinnaTemplate         PinnaTemplate?               @relation(fields: [pinnaTemplateId], references: [id], onDelete: SetNull)
   threadType            String                       @map("thread_type")
   title                 String?
@@ -476,6 +496,7 @@ model ChatThread {
   knowledgeEdges        KnowledgeEdge[]
 
   @@index([noteId])
+  @@index([pinnaId])
   @@index([sessionId])
   @@map("chat_threads")
 }
@@ -505,9 +526,234 @@ model PinnaTemplate {
   createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime     @default(now()) @map("updated_at") @db.Timestamptz(6)
   chatThreads  ChatThread[]
+  pinnas       Pinna[]
 
   @@index([key])
   @@map("pinna_templates")
+}
+
+model Pinna {
+  id                         String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  projectId                  String                  @map("project_id") @db.Uuid
+  sessionId                  String                  @map("session_id") @db.Uuid
+  noteId                     String                  @map("note_id") @db.Uuid
+  pinnaTemplateId            String?                 @map("pinna_template_id") @db.Uuid
+  selectedBaseKnowledgeVersionId String?             @map("selected_base_knowledge_version_id") @db.Uuid
+  title                      String?
+  status                     String                  @default("active")
+  agentMode                  String?                 @map("agent_mode")
+  agentConfig                Json?                   @map("agent_config")
+  createdAt                  DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime                @default(now()) @map("updated_at") @db.Timestamptz(6)
+  project                    Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session                    Session                 @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  note                       Note                    @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  pinnaTemplate              PinnaTemplate?          @relation(fields: [pinnaTemplateId], references: [id], onDelete: SetNull)
+  selectedBaseKnowledgeVersion NoteBaseKnowledgeVersion? @relation("PinnaSelectedBaseKnowledgeVersion", fields: [selectedBaseKnowledgeVersionId], references: [id], onDelete: SetNull)
+  chatThreads                ChatThread[]
+  knowledgeEvents            PinnaKnowledgeEvent[]
+  knowledgeBuilds            PinnaKnowledgeBuild[]
+  knowledgeSummaries         PinnaKnowledgeSummary[]
+  knowledgeHeads             PinnaKnowledgeHead[]
+  knowledgeNodes             PinnaKnowledgeNode[]
+  knowledgeEdges             PinnaKnowledgeEdge[]
+
+  @@index([noteId, createdAt])
+  @@index([pinnaTemplateId])
+  @@index([selectedBaseKnowledgeVersionId])
+  @@map("pinnas")
+}
+
+model NoteBaseKnowledgeVersion {
+  id              String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  noteId          String    @map("note_id") @db.Uuid
+  sourceId        String?   @map("source_id") @db.Uuid
+  projectId       String?   @map("project_id") @db.Uuid
+  sessionId       String?   @map("session_id") @db.Uuid
+  version         Int
+  title           String?
+  authors         Json?     @default("[]")
+  publicationDate String?   @map("publication_date")
+  abstract        String?   @db.Text
+  summary         String?   @db.Text
+  keyFindings     String    @map("key_findings") @db.Text
+  userView        String    @map("user_view") @db.Text
+  conclusion      String    @db.Text
+  model           String?
+  sourceSnapshot  Json      @default("{}") @map("source_snapshot")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  note            Note      @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  project         Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session         Session?  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  source          Source?   @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  head            NoteBaseKnowledgeHead?
+  selectedByPinnas Pinna[]  @relation("PinnaSelectedBaseKnowledgeVersion")
+  pinnaKnowledgeBuilds PinnaKnowledgeBuild[]
+
+  @@unique([noteId, version])
+  @@index([noteId, createdAt])
+  @@map("note_base_knowledge_versions")
+}
+
+model NoteBaseKnowledgeHead {
+  noteId                String                   @id @map("note_id") @db.Uuid
+  currentVersionId      String?                  @unique @map("current_version_id") @db.Uuid
+  currentVersionNumber  Int                      @default(0) @map("current_version_number")
+  updatedAt             DateTime                 @default(now()) @map("updated_at") @db.Timestamptz(6)
+  note                  Note                     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  currentVersion        NoteBaseKnowledgeVersion? @relation(fields: [currentVersionId], references: [id], onDelete: SetNull)
+
+  @@map("note_base_knowledge_heads")
+}
+
+model PinnaKnowledgeEvent {
+  id                String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  pinnaId           String             @map("pinna_id") @db.Uuid
+  projectId         String             @map("project_id") @db.Uuid
+  sessionId         String             @map("session_id") @db.Uuid
+  noteId            String             @map("note_id") @db.Uuid
+  eventType         String             @map("event_type")
+  content           String             @db.Text
+  seq               BigInt
+  actor             String?
+  messageRef        String?            @map("message_ref")
+  payload           Json?
+  supersedesEventId String?            @map("supersedes_event_id") @db.Uuid
+  occurredAt        DateTime           @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  importanceScore   Decimal            @default(0) @map("importance_score") @db.Decimal
+  confidenceScore   Decimal            @default(0) @map("confidence_score") @db.Decimal
+  status            String             @default("pending")
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  pinna             Pinna              @relation(fields: [pinnaId], references: [id], onDelete: Cascade)
+  project           Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session           Session            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  note              Note               @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  supersedesEvent   PinnaKnowledgeEvent? @relation("PinnaKnowledgeEventSupersedes", fields: [supersedesEventId], references: [id], onDelete: SetNull)
+  supersededBy      PinnaKnowledgeEvent[] @relation("PinnaKnowledgeEventSupersedes")
+  buildFrom         PinnaKnowledgeBuild[] @relation("PinnaKnowledgeBuildFromEvent")
+  buildTo           PinnaKnowledgeBuild[] @relation("PinnaKnowledgeBuildToEvent")
+
+  @@unique([pinnaId, seq])
+  @@index([noteId, createdAt])
+  @@index([pinnaId, createdAt])
+  @@map("pinna_knowledge_events")
+}
+
+model PinnaKnowledgeBuild {
+  id                     String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  pinnaId                String                    @map("pinna_id") @db.Uuid
+  projectId              String                    @map("project_id") @db.Uuid
+  sessionId              String                    @map("session_id") @db.Uuid
+  noteId                 String                    @map("note_id") @db.Uuid
+  baseKnowledgeVersionId String                    @map("base_knowledge_version_id") @db.Uuid
+  buildVersion           Int                       @map("build_version")
+  parentBuildId          String?                   @map("parent_build_id") @db.Uuid
+  eventSeqFrom           BigInt                    @map("event_seq_from")
+  eventSeqTo             BigInt                    @map("event_seq_to")
+  status                 String                    @default("complete")
+  generator              String
+  eventFromId            String?                   @map("event_from_id") @db.Uuid
+  eventToId              String?                   @map("event_to_id") @db.Uuid
+  createdAt              DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  pinna                  Pinna                     @relation(fields: [pinnaId], references: [id], onDelete: Cascade)
+  project                Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session                Session                   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  note                   Note                      @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  baseKnowledgeVersion   NoteBaseKnowledgeVersion  @relation(fields: [baseKnowledgeVersionId], references: [id], onDelete: Cascade)
+  parentBuild            PinnaKnowledgeBuild?      @relation("PinnaKnowledgeBuildParent", fields: [parentBuildId], references: [id], onDelete: SetNull)
+  childBuilds            PinnaKnowledgeBuild[]     @relation("PinnaKnowledgeBuildParent")
+  eventFrom              PinnaKnowledgeEvent?      @relation("PinnaKnowledgeBuildFromEvent", fields: [eventFromId], references: [id], onDelete: SetNull)
+  eventTo                PinnaKnowledgeEvent?      @relation("PinnaKnowledgeBuildToEvent", fields: [eventToId], references: [id], onDelete: SetNull)
+  nodes                  PinnaKnowledgeNode[]
+  edges                  PinnaKnowledgeEdge[]
+  summaries              PinnaKnowledgeSummary[]
+  heads                  PinnaKnowledgeHead[]
+
+  @@unique([pinnaId, buildVersion])
+  @@index([pinnaId, createdAt])
+  @@map("pinna_knowledge_builds")
+}
+
+model PinnaKnowledgeSummary {
+  id          String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  pinnaId     String               @map("pinna_id") @db.Uuid
+  buildId     String               @map("build_id") @db.Uuid
+  summaryType String               @map("summary_type")
+  content     String               @db.Text
+  format      String               @default("markdown")
+  generator   String
+  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  pinna       Pinna                @relation(fields: [pinnaId], references: [id], onDelete: Cascade)
+  build       PinnaKnowledgeBuild  @relation(fields: [buildId], references: [id], onDelete: Cascade)
+
+  @@unique([buildId, summaryType])
+  @@index([pinnaId, createdAt])
+  @@map("pinna_knowledge_summaries")
+}
+
+model PinnaKnowledgeHead {
+  pinnaId          String               @id @map("pinna_id") @db.Uuid
+  currentBuildId   String?              @map("current_build_id") @db.Uuid
+  currentEventSeq  BigInt               @default(0) @map("current_event_seq")
+  updatedAt        DateTime             @default(now()) @map("updated_at") @db.Timestamptz(6)
+  pinna            Pinna                @relation(fields: [pinnaId], references: [id], onDelete: Cascade)
+  currentBuild     PinnaKnowledgeBuild? @relation(fields: [currentBuildId], references: [id], onDelete: SetNull)
+
+  @@map("pinna_knowledge_heads")
+}
+
+model PinnaKnowledgeNode {
+  id         String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  pinnaId    String                @map("pinna_id") @db.Uuid
+  projectId  String                @map("project_id") @db.Uuid
+  sessionId  String?               @map("session_id") @db.Uuid
+  noteId     String?               @map("note_id") @db.Uuid
+  sourceId   String?               @map("source_id") @db.Uuid
+  buildId    String                @map("build_id") @db.Uuid
+  stableKey  String?               @map("stable_key")
+  nodeType   String                @map("node_type")
+  label      String
+  summary    String?               @db.Text
+  body       String?               @db.Text
+  state      String?
+  confidence Decimal?              @db.Decimal(5, 4)
+  metadata   Json                  @default("{}")
+  createdAt  DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
+  pinna      Pinna                 @relation(fields: [pinnaId], references: [id], onDelete: Cascade)
+  project    Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  session    Session?              @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  note       Note?                 @relation(fields: [noteId], references: [id], onDelete: SetNull)
+  source     Source?               @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  build      PinnaKnowledgeBuild   @relation(fields: [buildId], references: [id], onDelete: Cascade)
+  fromEdges  PinnaKnowledgeEdge[]  @relation("PinnaFromNode")
+  toEdges    PinnaKnowledgeEdge[]  @relation("PinnaToNode")
+
+  @@unique([buildId, stableKey])
+  @@index([pinnaId, buildId])
+  @@map("pinna_knowledge_nodes")
+}
+
+model PinnaKnowledgeEdge {
+  id          String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  pinnaId     String               @map("pinna_id") @db.Uuid
+  buildId     String               @map("build_id") @db.Uuid
+  fromNodeId  String               @map("from_node_id") @db.Uuid
+  toNodeId    String               @map("to_node_id") @db.Uuid
+  edgeType    String               @map("edge_type")
+  weight      Decimal              @default(1) @db.Decimal
+  explanation String?              @db.Text
+  metadata    Json                 @default("{}")
+  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  pinna       Pinna                @relation(fields: [pinnaId], references: [id], onDelete: Cascade)
+  build       PinnaKnowledgeBuild  @relation(fields: [buildId], references: [id], onDelete: Cascade)
+  fromNode    PinnaKnowledgeNode   @relation("PinnaFromNode", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode      PinnaKnowledgeNode   @relation("PinnaToNode", fields: [toNodeId], references: [id], onDelete: Cascade)
+
+  @@index([buildId, edgeType])
+  @@index([fromNodeId])
+  @@index([toNodeId])
+  @@map("pinna_knowledge_edges")
 }
 
 model Tool {

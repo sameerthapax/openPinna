@@ -57,6 +57,11 @@ type Props = {
 type NoteApiResponse = {
   ok: boolean;
   note?: {
+    baseKnowledgeHead?: {
+      currentVersion?:
+        | (Omit<NoteKnowledgeRecord, "updatedAt"> & { createdAt?: string; updatedAt?: string })
+        | null;
+    } | null;
     linkedNoteKnowledge?: NoteKnowledgeRecord | null;
     noteKnowledge?: NoteKnowledgeRecord | null;
   };
@@ -74,6 +79,24 @@ function coreClasses() {
 
 function proseCardClasses() {
   return "rounded-[1.6rem] border border-[color-mix(in_srgb,var(--foreground)_7%,transparent)] bg-[color-mix(in_srgb,var(--pastel-yellow)_20%,var(--surface))] px-5 py-5";
+}
+
+function normalizeKnowledgeRecord(
+  value:
+    | NoteKnowledgeRecord
+    | (Omit<NoteKnowledgeRecord, "updatedAt"> & { createdAt?: string; updatedAt?: string })
+    | null
+    | undefined,
+) {
+  if (!value) return null;
+
+  return {
+    ...value,
+    updatedAt:
+      value.updatedAt ||
+      ("createdAt" in value ? value.createdAt : undefined) ||
+      new Date().toISOString(),
+  };
 }
 
 export function NoteSelectedTextPanel({ selectedText }: { selectedText: string }) {
@@ -336,7 +359,12 @@ export function NoteKnowledgeBuildPanel({
       throw new Error(payload?.message || "Could not refresh note knowledge.");
     }
 
-    const nextKnowledge = payload.note.linkedNoteKnowledge || payload.note.noteKnowledge || null;
+    const nextKnowledge = normalizeKnowledgeRecord(
+      payload.note.baseKnowledgeHead?.currentVersion ||
+        payload.note.linkedNoteKnowledge ||
+        payload.note.noteKnowledge ||
+        null,
+    );
     setKnowledge(nextKnowledge);
     setProcessingStatus(payload.processingStatus);
 
