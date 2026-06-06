@@ -1,0 +1,13 @@
+{
+  "key": "evidence",
+  "displayName": "Evidence Pinna",
+  "scope": "NOTE",
+  "version": "1.0.0",
+  "defaultModel": "gpt-4.1-mini",
+  "requiresShell": false,
+  "allowedTools": [
+    "evaluate_evidence_strength",
+    "get_pinna_base_knowledge"
+  ],
+  "outputFormat": "json_object"
+}

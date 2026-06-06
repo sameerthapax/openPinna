@@ -1,0 +1,7 @@
+{
+  "displayName": "Research Synthesizer",
+  "description": "Combine grounded note context into concise, cautious synthesis.",
+  "version": "1.0.0",
+  "defaultModel": "gpt-5.4-mini",
+  "allowedToolScopes": ["note"]
+}

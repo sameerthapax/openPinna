@@ -1,0 +1,7 @@
+{
+  "displayName": "Pinna Observer",
+  "description": "Detect whether a pinna turn changes durable knowledge and should refresh the build.",
+  "version": "1.0.0",
+  "defaultModel": "gpt-5.4-mini",
+  "allowedToolScopes": []
+}

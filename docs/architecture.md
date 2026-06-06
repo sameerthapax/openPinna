@@ -20,6 +20,14 @@ Voice capture should become another input path for raw thoughts. Transcribed voi
 
 The current fake AI service in `lib/ai/structure-note.ts` is a placeholder. A future implementation can call a real model to produce summary, usefulness, purpose, and later richer fields such as claims, evidence, questions, and contradictions.
 
+## Skill-Backed Agents
+
+Pinna agents should load their role instructions from the filesystem, not a database table. Each skill lives under `skills/<skill-key>/SKILL.md` with optional `metadata.json` for publishable metadata such as display name, version, default model, and allowed tool scopes.
+
+The runtime should keep the database focused on agent identity and thread state. At turn time, the server reads the skill file and runs the pinna through the standard Responses API with the allowed tool set for that pinna plus a `shell` tool whose environment mounts the local skill bundle as an inline skill. This keeps skills source-controlled, reviewable, and reusable while still using the platform-native skill mechanism.
+
+The observer follows the same pattern. It should remain a reusable agent definition with a stable skill folder and a JSON decision output, so the same observer logic can be plugged into any pinna-level workflow without a schema migration.
+
 ## Future Research Memory and Embeddings
 
 Embeddings and semantic search should be added after the manual capture workflow is reliable. They will likely require a separate memory table or vector store, plus background jobs to avoid slowing down note creation.

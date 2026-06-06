@@ -9,6 +9,12 @@ datasource db {
   extensions = [uuidOssp(map: "uuid-ossp")]
 }
 
+enum AgentScope {
+  PROJECT
+  SESSION
+  NOTE
+}
+
 model Project {
   id               String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   userId           String?                      @map("user_id") @db.Uuid
@@ -476,7 +482,7 @@ model ChatThread {
   project               Project                      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   session               Session                      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   note                  Note                         @relation(fields: [noteId], references: [id], onDelete: Cascade)
-  pinna                 Pinna?                       @relation(fields: [pinnaId], references: [id], onDelete: SetNull)
+  pinna                 Pinna?                       @relation(fields: [pinnaId], references: [id], onDelete: Cascade)
   pinnaTemplate         PinnaTemplate?               @relation(fields: [pinnaTemplateId], references: [id], onDelete: SetNull)
   threadType            String                       @map("thread_type")
   title                 String?
@@ -515,18 +521,24 @@ model ChatMessage {
 }
 
 model PinnaTemplate {
-  id           String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  key          String       @unique
-  name         String
-  description  String?      @db.Text
-  defaultTitle String?      @map("default_title")
-  systemPrompt String       @map("system_prompt") @db.Text
-  sortOrder    Int          @default(0) @map("sort_order")
-  isActive     Boolean      @default(true) @map("is_active")
-  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime     @default(now()) @map("updated_at") @db.Timestamptz(6)
-  chatThreads  ChatThread[]
-  pinnas       Pinna[]
+  id                 String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  key                String               @unique
+  name               String
+  displayName        String               @default("") @map("display_name")
+  description        String?              @db.Text
+  defaultTitle       String?              @map("default_title")
+  systemPrompt       String               @map("system_prompt") @db.Text
+  scope              AgentScope           @default(NOTE)
+  defaultSkillKey    String?              @map("default_skill_key")
+  allowShell         Boolean              @default(false) @map("allow_shell")
+  sortOrder          Int                  @default(0) @map("sort_order")
+  isActive           Boolean              @default(true) @map("is_active")
+  createdAt          DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime             @default(now()) @map("updated_at") @db.Timestamptz(6)
+  defaultSkill       PinnaSkill?          @relation("PinnaTemplateDefaultSkill", fields: [defaultSkillKey], references: [key], onDelete: SetNull)
+  chatThreads        ChatThread[]
+  pinnas             Pinna[]
+  pinnaTemplateSkills PinnaTemplateSkill[]
 
   @@index([key])
   @@map("pinna_templates")
@@ -805,6 +817,73 @@ model ToolCall {
   @@index([threadId])
   @@index([toolKey])
   @@map("tool_calls")
+}
+
+model PinnaSkill {
+  id                 String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  key                String               @unique
+  displayName        String               @map("display_name")
+  scope              AgentScope
+  version            String
+  defaultModel       String               @map("default_model")
+  requiresShell      Boolean              @default(false) @map("requires_shell")
+  isEnabled          Boolean              @default(true) @map("is_enabled")
+  skillPath          String               @map("skill_path") @db.Text
+  runtimePath        String               @map("runtime_path") @db.Text
+  manifestJson       Json                 @map("manifest_json")
+  createdAt          DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime             @default(now()) @map("updated_at") @db.Timestamptz(6)
+  defaultForTemplates PinnaTemplate[]     @relation("PinnaTemplateDefaultSkill")
+  pinnaTemplateSkills PinnaTemplateSkill[]
+  pinnaSkillTools     PinnaSkillTool[]
+
+  @@map("pinna_skills")
+}
+
+model PinnaTemplateSkill {
+  id               String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  pinnaTemplateId  String        @map("pinna_template_id") @db.Uuid
+  skillId          String        @map("skill_id") @db.Uuid
+  isDefault        Boolean       @default(false) @map("is_default")
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
+  pinnaTemplate    PinnaTemplate @relation(fields: [pinnaTemplateId], references: [id], onDelete: Cascade)
+  skill            PinnaSkill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([pinnaTemplateId, skillId])
+  @@index([skillId])
+  @@map("pinna_template_skills")
+}
+
+model AgentTool {
+  id             String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  key            String           @unique
+  displayName    String           @map("display_name")
+  description    String?          @db.Text
+  schemaJson     Json             @map("schema_json")
+  handlerName    String           @map("handler_name")
+  scope          AgentScope?
+  requiresShell  Boolean          @default(false) @map("requires_shell")
+  isEnabled      Boolean          @default(true) @map("is_enabled")
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime         @default(now()) @map("updated_at") @db.Timestamptz(6)
+  pinnaSkillTools PinnaSkillTool[]
+
+  @@map("agent_tools")
+}
+
+model PinnaSkillTool {
+  id        String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  skillId   String    @map("skill_id") @db.Uuid
+  toolId    String    @map("tool_id") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  skill     PinnaSkill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  tool      AgentTool  @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@unique([skillId, toolId])
+  @@index([toolId])
+  @@map("pinna_skill_tools")
 }
 
 model KnowledgeEvent {

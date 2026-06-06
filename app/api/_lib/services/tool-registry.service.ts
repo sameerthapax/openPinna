@@ -1,11 +1,15 @@
 import { db } from "@/lib/db";
+import { getOpenAIClient } from "@/src/agents/openai/openai-client";
+import { listSkillDefinitions } from "@/src/agents/skills/skill-loader";
 import { z } from "zod";
 
 export type AgentType = "pinna" | "session" | "project";
-export type ToolScope = "note" | "session" | "project" | "global";
+export type ToolScope = "NOTE" | "SESSION" | "PROJECT";
 
 type ToolContext = {
   threadId?: string;
+  projectId?: string;
+  sessionId?: string;
   noteId?: string;
   noteText?: string;
   sourceText?: string;
@@ -17,30 +21,71 @@ type ExecuteToolInput = {
   context: ToolContext;
 };
 
+type WebFinding = {
+  title: string;
+  url: string;
+  snippet: string;
+  sourceName: string;
+  publishedDate?: string | null;
+  relevanceToNote: string;
+};
+
+type WebSearchAnnotation = {
+  url?: string;
+  title?: string;
+  source?: string;
+  published_at?: string;
+};
+
+type WebSearchPart = {
+  annotations?: WebSearchAnnotation[];
+  text?: string;
+};
+
+type WebSearchMessage = {
+  type?: string;
+  content?: WebSearchPart[];
+};
+
+type WebSearchResponse = {
+  output?: WebSearchMessage[];
+  output_text?: string;
+};
+
 function textSnippet(value: unknown, max = 600) {
   if (typeof value !== "string") return "";
   return value.slice(0, max);
+}
+
+function inferRelevanceToNote(noteText: string, snippet: string) {
+  const note = noteText.trim();
+  const excerpt = snippet.trim();
+  if (!note) return "Useful as external support if it matches the note claim.";
+  if (!excerpt) return "External result found, but the snippet is thin.";
+
+  return `Compare this finding against the note focus: ${note.slice(0, 160)}`;
 }
 
 async function extractClaims(input: Record<string, unknown>) {
   const noteText = textSnippet(input.noteText);
   const parts = noteText
     .split(/[\n\.\?!]/)
-    .map((s) => s.trim())
+    .map((segment) => segment.trim())
     .filter(Boolean)
     .slice(0, 3);
 
   return {
     claims: parts.length ? parts : [noteText || "No note text provided."],
     provider: "placeholder",
-    todo: "Integrate real LLM extraction for richer claim detection.",
   };
 }
 
 async function rewriteClaimPrecisely(input: Record<string, unknown>) {
   const claim = textSnippet(input.claim);
   return {
-    rewrittenClaim: claim ? `Precise research claim: ${claim}` : "Precise research claim unavailable.",
+    rewrittenClaim: claim
+      ? `Precise research claim: ${claim}`
+      : "Precise research claim unavailable.",
     provider: "placeholder",
   };
 }
@@ -50,7 +95,7 @@ async function evaluateEvidenceStrength(input: Record<string, unknown>) {
   const sourceText = textSnippet(input.sourceText);
   return {
     evaluation:
-      "Placeholder evidence assessment: verify sample size, methodology transparency, and reproducibility.",
+      "Evidence review placeholder: verify method transparency, sample quality, effect size, and reproducibility.",
     noteExcerpt: noteText,
     sourceExcerpt: sourceText,
     provider: "placeholder",
@@ -61,9 +106,11 @@ async function findAssumptions(input: Record<string, unknown>) {
   const noteText = textSnippet(input.noteText);
   return {
     assumptions: [
-      "The observed effect generalizes beyond the original context.",
-      "Measurement quality is sufficient for the claim.",
-      noteText ? "Interpretation of the note text is semantically stable." : "No note text supplied.",
+      "The observed result generalizes beyond the original setting.",
+      "Measurement quality is sufficient for the stated claim.",
+      noteText
+        ? "The note wording preserves the original source meaning."
+        : "No note text supplied.",
     ],
     provider: "placeholder",
   };
@@ -74,89 +121,252 @@ async function generateCounterarguments(input: Record<string, unknown>) {
   return {
     counterarguments: [
       "Alternative causal variables might explain the same outcome.",
-      "Evidence may be correlational rather than causal.",
-      noteText ? `The note may overstate certainty: ${noteText.slice(0, 140)}` : "Missing note text reduces confidence.",
+      "The evidence may be correlational rather than causal.",
+      noteText
+        ? `The note may overstate certainty: ${noteText.slice(0, 140)}`
+        : "Missing note text reduces confidence.",
     ],
     provider: "placeholder",
   };
 }
 
-async function exploreImplications(input: Record<string, unknown>) {
-  const noteText = textSnippet(input.noteText);
-  return {
-    implications: [
-      "Define one experiment to falsify the core claim.",
-      "Track second-order risk if claim scales to production.",
-      noteText ? `Potential near-term application from note: ${noteText.slice(0, 120)}` : "Need note text for specific implications.",
-    ],
-    provider: "placeholder",
-  };
-}
-
-async function suggestApplications(input: Record<string, unknown>) {
-  const noteText = textSnippet(input.noteText);
-  return {
-    applications: [
-      "Create a minimal prototype validating one measurable outcome.",
-      "Design A/B test around the primary claim variable.",
-      noteText ? `Draft follow-up action from note snippet: ${noteText.slice(0, 120)}` : "Need note text for tailored applications.",
-    ],
-    provider: "placeholder",
-  };
-}
-
-async function webSearch(input: Record<string, unknown>) {
-  return {
-    query: textSnippet(input.query, 240),
-    reason: textSnippet(input.reason, 240),
-    status: "unavailable",
-    message: "Web search provider is not configured yet.",
-    todo: "Wire a web provider behind this handler.",
-  };
-}
-
-async function findRelatedPapers(input: Record<string, unknown>) {
-  return {
-    query: textSnippet(input.query, 240),
-    topic: textSnippet(input.topic, 240),
-    status: "unavailable",
-    message: "Related-paper search provider is not configured yet.",
-    todo: "Wire academic search API behind this handler.",
-  };
-}
-
-async function createFollowupNote(input: Record<string, unknown>, context: ToolContext) {
-  const noteText = textSnippet(input.noteText);
-
-  if (!context.noteId) {
+async function getPinnaBaseKnowledge(_input: Record<string, unknown>, context: ToolContext) {
+  if (!context.threadId) {
     return {
       status: "skipped",
-      message: "No note context found. Could not create follow-up note.",
+      message: "No thread context found. Could not retrieve pinna base knowledge.",
     };
   }
 
-  const sourceNote = await db.note.findUnique({ where: { id: context.noteId } });
-  if (!sourceNote) {
+  const thread = await db.chatThread.findUnique({
+    where: { id: context.threadId },
+    include: {
+      pinna: {
+        include: {
+          selectedBaseKnowledgeVersion: true,
+        },
+      },
+    },
+  });
+
+  const baseVersion = thread?.pinna?.selectedBaseKnowledgeVersion;
+  if (!thread?.pinna || !baseVersion) {
     return {
-      status: "skipped",
-      message: "Source note does not exist.",
+      status: "missing",
+      message: "This pinna does not have a selected base knowledge version yet.",
     };
   }
 
-  const followup = await db.note.create({
+  return {
+    status: "ok",
+    pinnaId: thread.pinna.id,
+    noteId: thread.noteId,
+    baseKnowledge: {
+      id: baseVersion.id,
+      version: baseVersion.version,
+      title: baseVersion.title,
+      authors: Array.isArray(baseVersion.authors) ? baseVersion.authors : [],
+      publicationDate: baseVersion.publicationDate,
+      abstract: baseVersion.abstract,
+      summary: baseVersion.summary,
+      keyFindings: baseVersion.keyFindings,
+      userView: baseVersion.userView,
+      conclusion: baseVersion.conclusion,
+      model: baseVersion.model,
+      sourceSnapshot: baseVersion.sourceSnapshot,
+      createdAt: baseVersion.createdAt.toISOString(),
+    },
+  };
+}
+
+function collectResponseFindings(response: unknown, noteText: string) {
+  const findings: WebFinding[] = [];
+  const output = (response as WebSearchResponse).output ?? [];
+
+  for (const item of output) {
+    if (item?.type !== "message" || !Array.isArray(item.content)) {
+      continue;
+    }
+
+    for (const part of item.content) {
+      const annotations = Array.isArray(part?.annotations) ? part.annotations : [];
+      const snippet = typeof part?.text === "string" ? part.text : "";
+
+      for (const annotation of annotations) {
+        const url = typeof annotation?.url === "string" ? annotation.url : "";
+        if (!url) continue;
+
+        findings.push({
+          title:
+            typeof annotation?.title === "string" && annotation.title.trim()
+              ? annotation.title
+              : url,
+          url,
+          snippet: snippet.slice(0, 320),
+          sourceName:
+            typeof annotation?.source === "string" && annotation.source.trim()
+              ? annotation.source
+              : "web",
+          publishedDate:
+            typeof annotation?.published_at === "string" ? annotation.published_at : null,
+          relevanceToNote: inferRelevanceToNote(noteText, snippet),
+        });
+      }
+    }
+  }
+
+  if (findings.length > 0) {
+    return findings;
+  }
+
+  const fallbackText = (response as WebSearchResponse).output_text ?? "";
+  return fallbackText
+    ? [
+        {
+          title: "Web search summary",
+          url: "",
+          snippet: fallbackText.slice(0, 320),
+          sourceName: "web",
+          publishedDate: null,
+          relevanceToNote: inferRelevanceToNote(noteText, fallbackText),
+        },
+      ]
+    : [];
+}
+
+async function openaiWebSearch(input: Record<string, unknown>, context: ToolContext) {
+  const query = textSnippet(input.query, 400);
+  const maxResults = Number.isFinite(Number(input.maxResults)) ? Number(input.maxResults) : 5;
+
+  if (!query) {
+    return {
+      query: "",
+      findings: [],
+      error: "query is required",
+    };
+  }
+
+  const client = getOpenAIClient();
+  const response = await client.responses.create({
+    model: "gpt-4.1-mini",
+    input: query,
+    tools: [{ type: "web_search_preview" as never }],
+    tool_choice: "auto",
+  });
+
+  return {
+    query,
+    findings: collectResponseFindings(response, context.noteText || "").slice(0, maxResults),
+  };
+}
+
+async function summarizeWebFindings(input: Record<string, unknown>) {
+  const findings = Array.isArray(input.findings) ? input.findings : [];
+  const summary = findings
+    .slice(0, 5)
+    .map((finding) => {
+      if (!finding || typeof finding !== "object") return null;
+      const entry = finding as Record<string, unknown>;
+      return {
+        title: textSnippet(entry.title, 160),
+        url: textSnippet(entry.url, 240),
+        takeaway: textSnippet(entry.snippet, 200),
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    summary,
+    noteBoundary:
+      "Treat these as external findings. Do not replace the note's original claim without confirmation.",
+  };
+}
+
+async function linkWebFindingToNote(input: Record<string, unknown>, context: ToolContext) {
+  if (!context.noteId || !context.projectId || !context.sessionId) {
+    return {
+      status: "skipped",
+      message: "Missing note context for linking.",
+    };
+  }
+
+  const title = textSnippet(input.title, 200);
+  const url = textSnippet(input.url, 400);
+  const snippet = textSnippet(input.snippet, 600);
+
+  const event = await db.knowledgeEvent.create({
     data: {
-      projectId: sourceNote.projectId,
-      sessionId: sourceNote.sessionId,
-      sourceId: sourceNote.sourceId,
-      captureId: sourceNote.captureId,
-      noteText,
-      userCommentary: textSnippet(input.reason, 240) || "Created by pinna tool call.",
+      projectId: context.projectId,
+      sessionId: context.sessionId,
+      noteId: context.noteId,
+      threadId: context.threadId || null,
+      eventType: "web_finding_linked",
+      content: [title, url, snippet].filter(Boolean).join(" | ").slice(0, 2000),
+      actor: "assistant",
+      payload: {
+        title,
+        url,
+        snippet,
+        sourceName: textSnippet(input.sourceName, 200),
+        publishedDate: textSnippet(input.publishedDate, 64),
+      },
     },
   });
 
   return {
-    status: "created",
-    followupNoteId: followup.id,
+    status: "linked",
+    knowledgeEventId: event.id,
+    noteId: context.noteId,
+  };
+}
+
+async function getAvailableSkills(input: Record<string, unknown>) {
+  const scope = textSnippet(input.scope, 32).toUpperCase();
+  const skills = await listSkillDefinitions();
+
+  return {
+    skills: skills
+      .filter((skill) => (scope ? skill.scope === scope : true))
+      .map((skill) => ({
+        key: skill.key,
+        displayName: skill.displayName,
+        scope: skill.scope,
+        defaultModel: skill.defaultModel,
+        requiresShell: skill.requiresShell,
+        allowedTools: skill.allowedTools,
+      })),
+  };
+}
+
+async function buildResearchSynthesis(input: Record<string, unknown>) {
+  return {
+    status: "ok",
+    synthesis: textSnippet(input.sourceText || input.summary || input.query, 800),
+    provider: "placeholder",
+  };
+}
+
+async function writeProjectKnowledge(input: Record<string, unknown>) {
+  return {
+    status: "ok",
+    accepted: Boolean(textSnippet(input.content, 10)),
+    provider: "placeholder",
+  };
+}
+
+async function downloadSource(input: Record<string, unknown>) {
+  return {
+    status: "unavailable",
+    url: textSnippet(input.url, 400),
+    message: "Source download is not wired yet.",
+  };
+}
+
+async function extractPdfText(input: Record<string, unknown>) {
+  return {
+    status: "unavailable",
+    filePath: textSnippet(input.filePath, 400),
+    message: "PDF extraction is not wired yet.",
   };
 }
 
@@ -166,11 +376,15 @@ export const toolHandlers = {
   evaluateEvidenceStrength,
   findAssumptions,
   generateCounterarguments,
-  exploreImplications,
-  suggestApplications,
-  webSearch,
-  findRelatedPapers,
-  createFollowupNote,
+  getPinnaBaseKnowledge,
+  openaiWebSearch,
+  summarizeWebFindings,
+  linkWebFindingToNote,
+  getAvailableSkills,
+  buildResearchSynthesis,
+  writeProjectKnowledge,
+  downloadSource,
+  extractPdfText,
 } as const;
 
 type ToolHandlerName = keyof typeof toolHandlers;
@@ -178,28 +392,18 @@ type ToolHandlerName = keyof typeof toolHandlers;
 type ValidateToolAllowedInput = {
   agentType: AgentType;
   agentKey: string;
+  skillKey: string;
   toolKey: string;
   requiredScope: ToolScope;
 };
-
-const scopeRank: Record<ToolScope, number> = {
-  note: 1,
-  session: 2,
-  project: 3,
-  global: 4,
-};
-
-function isScopeAllowed(agentType: AgentType, toolScope: ToolScope) {
-  if (agentType === "pinna") return toolScope === "note" || toolScope === "global";
-  if (agentType === "session") return toolScope === "session" || toolScope === "global";
-  return toolScope === "project" || toolScope === "global";
-}
 
 function buildSchemaValidator(schema: unknown) {
   const parsed = z
     .object({
       type: z.literal("object"),
-      properties: z.record(z.object({ type: z.string().optional() })).optional(),
+      properties: z
+        .record(z.string(), z.object({ type: z.string().optional() }))
+        .optional(),
       required: z.array(z.string()).optional(),
     })
     .safeParse(schema);
@@ -218,7 +422,9 @@ function buildSchemaValidator(schema: unknown) {
       }
     }
 
-    for (const [key, config] of Object.entries(properties)) {
+    for (const [key, config] of Object.entries(properties) as Array<
+      [string, { type?: string }]
+    >) {
       if (!(key in input) || input[key] == null) continue;
       if (config.type === "string" && typeof input[key] !== "string") {
         return { ok: false as const, error: `Field '${key}' must be a string.` };
@@ -230,64 +436,87 @@ function buildSchemaValidator(schema: unknown) {
 }
 
 export async function listTools() {
-  return db.tool.findMany({ where: { isActive: true }, orderBy: { key: "asc" } });
+  return db.agentTool.findMany({ where: { isEnabled: true }, orderBy: { key: "asc" } });
 }
 
 export async function getAllowedToolsForAgent(agentType: AgentType, agentKey: string) {
-  const permissions = await db.agentToolPermission.findMany({
-    where: {
-      agentType,
-      agentKey,
-      isEnabled: true,
-      tool: { isActive: true },
+  if (agentType !== "pinna") {
+    return [];
+  }
+
+  const template = await db.pinnaTemplate.findFirst({
+    where: { key: agentKey, isActive: true },
+    include: {
+      defaultSkill: {
+        include: {
+          pinnaSkillTools: {
+            include: {
+              tool: true,
+            },
+          },
+        },
+      },
     },
-    include: { tool: true },
   });
 
-  return permissions.map((item) => item.tool);
+  if (!template?.defaultSkill || !template.defaultSkill.isEnabled) {
+    return [];
+  }
+
+  return template.defaultSkill.pinnaSkillTools
+    .map((item) => item.tool)
+    .filter((tool) => tool.isEnabled)
+    .map((tool) => ({
+      key: tool.key,
+      description: tool.description,
+      schema: tool.schemaJson,
+      requiresShell: tool.requiresShell,
+    }));
 }
 
 export async function validateToolAllowed(input: ValidateToolAllowedInput) {
-  const permission = await db.agentToolPermission.findFirst({
+  const template = await db.pinnaTemplate.findFirst({
     where: {
-      agentType: input.agentType,
-      agentKey: input.agentKey,
-      isEnabled: true,
-      tool: {
-        key: input.toolKey,
-        isActive: true,
+      key: input.agentKey,
+      isActive: true,
+      defaultSkill: {
+        key: input.skillKey,
+        isEnabled: true,
       },
     },
-    include: { tool: true },
+    include: {
+      defaultSkill: {
+        include: {
+          pinnaSkillTools: {
+            where: {
+              tool: {
+                key: input.toolKey,
+                isEnabled: true,
+              },
+            },
+            include: {
+              tool: true,
+            },
+          },
+        },
+      },
+    },
   });
 
-  if (!permission) {
-    console.warn("Denied tool call: permission missing", input);
+  const tool = template?.defaultSkill?.pinnaSkillTools[0]?.tool;
+  if (!tool) {
     throw new Error("Tool is not allowed for this agent.");
   }
 
-  const toolScope = permission.tool.scope as ToolScope;
-  if (!isScopeAllowed(input.agentType, toolScope)) {
-    console.warn("Denied tool call: scope violation", {
-      ...input,
-      toolScope,
-    });
-    throw new Error("Tool scope is not allowed for this agent.");
-  }
-
-  if (scopeRank[toolScope] < scopeRank[input.requiredScope]) {
-    console.warn("Denied tool call: required scope mismatch", {
-      ...input,
-      toolScope,
-    });
+  if (tool.scope && tool.scope !== input.requiredScope) {
     throw new Error("Tool scope does not satisfy required scope.");
   }
 
-  return permission.tool;
+  return tool;
 }
 
 export async function executeTool({ toolKey, input, context }: ExecuteToolInput) {
-  const tool = await db.tool.findFirst({ where: { key: toolKey, isActive: true } });
+  const tool = await db.agentTool.findFirst({ where: { key: toolKey, isEnabled: true } });
   if (!tool) {
     return {
       ok: false,
@@ -295,7 +524,7 @@ export async function executeTool({ toolKey, input, context }: ExecuteToolInput)
     };
   }
 
-  const validator = buildSchemaValidator(tool.schema);
+  const validator = buildSchemaValidator(tool.schemaJson);
   const validation = validator(input);
   if (!validation.ok) {
     return {

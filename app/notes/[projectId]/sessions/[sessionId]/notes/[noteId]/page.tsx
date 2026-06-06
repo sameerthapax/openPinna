@@ -198,11 +198,16 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
                       }
                     : null,
                 messages:
-                  primaryThread?.messages.map((message) => ({
+                  primaryThread?.messages
+                    .slice()
+                    .reverse()
+                    .map((message) => ({
                     id: message.id,
                     role: message.role,
                     content: message.content,
+                    createdAt: message.createdAt.toISOString(),
                   })) || [],
+                hasOlderMessages: (primaryThread?._count.messages || 0) > (primaryThread?.messages.length || 0),
               };
             })}
             initialLayout={

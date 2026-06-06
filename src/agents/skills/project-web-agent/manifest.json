@@ -1,0 +1,14 @@
+{
+  "key": "project-web-agent",
+  "displayName": "Project Web Agent",
+  "scope": "PROJECT",
+  "version": "1.0.0",
+  "defaultModel": "gpt-4.1",
+  "requiresShell": true,
+  "allowedTools": [
+    "openai_web_search",
+    "summarize_web_findings",
+    "build_research_synthesis"
+  ],
+  "outputFormat": "json_object"
+}

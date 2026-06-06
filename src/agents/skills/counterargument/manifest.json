@@ -1,0 +1,14 @@
+{
+  "key": "counterargument",
+  "displayName": "Counterargument Pinna",
+  "scope": "NOTE",
+  "version": "1.0.0",
+  "defaultModel": "gpt-4.1-mini",
+  "requiresShell": false,
+  "allowedTools": [
+    "find_assumptions",
+    "generate_counterarguments",
+    "get_pinna_base_knowledge"
+  ],
+  "outputFormat": "json_object"
+}

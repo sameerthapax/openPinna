@@ -1,0 +1,13 @@
+{
+  "key": "report-writer",
+  "displayName": "Report Writer",
+  "scope": "PROJECT",
+  "version": "1.0.0",
+  "defaultModel": "gpt-4.1",
+  "requiresShell": false,
+  "allowedTools": [
+    "build_research_synthesis",
+    "write_project_knowledge"
+  ],
+  "outputFormat": "json_object"
+}

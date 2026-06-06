@@ -5,6 +5,12 @@ import { mkdirSync } from "node:fs";
 const uploadRoot = process.env.UPLOAD_DIR || "./uploads";
 const screenshotRoot = process.env.SCREENSHOT_UPLOAD_DIR || "./screenshots";
 
+type StoredFile = {
+  originalname?: string;
+};
+
+type PathCallback = (error: Error | null, value: string) => void;
+
 function safeFilename(name: string) {
   return path.basename(name).replace(/[^a-zA-Z0-9._-]/g, "_");
 }
@@ -15,8 +21,9 @@ export function createMulterForSource(projectId: string, sessionId: string) {
 
   return multer({
     storage: multer.diskStorage({
-      destination: (_req: any, _file: any, cb: any) => cb(null, destination),
-      filename: (_req: any, file: any, cb: any) => cb(null, `${Date.now()}-${safeFilename(file.originalname)}`),
+      destination: (_req: unknown, _file: StoredFile, cb: PathCallback) => cb(null, destination),
+      filename: (_req: unknown, file: StoredFile, cb: PathCallback) =>
+        cb(null, `${Date.now()}-${safeFilename(file.originalname || "upload.bin")}`),
     }),
   });
 }
@@ -27,8 +34,9 @@ export function createMulterForCapture(projectId: string, sessionId: string) {
 
   return multer({
     storage: multer.diskStorage({
-      destination: (_req: any, _file: any, cb: any) => cb(null, destination),
-      filename: (_req: any, file: any, cb: any) => cb(null, `${Date.now()}-${safeFilename(file.originalname)}`),
+      destination: (_req: unknown, _file: StoredFile, cb: PathCallback) => cb(null, destination),
+      filename: (_req: unknown, file: StoredFile, cb: PathCallback) =>
+        cb(null, `${Date.now()}-${safeFilename(file.originalname || "upload.bin")}`),
     }),
   });
 }
@@ -39,8 +47,8 @@ export function createMulterForScreenshot(projectId: string, sessionId: string) 
 
   return multer({
     storage: multer.diskStorage({
-      destination: (_req: any, _file: any, cb: any) => cb(null, destination),
-      filename: (_req: any, file: any, cb: any) => {
+      destination: (_req: unknown, _file: StoredFile, cb: PathCallback) => cb(null, destination),
+      filename: (_req: unknown, file: StoredFile, cb: PathCallback) => {
         const normalized = safeFilename(file.originalname || `${Date.now()}-untitled-page.png`);
         cb(null, normalized);
       },

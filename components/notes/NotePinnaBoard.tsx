@@ -2,7 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
-import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
+import { useThemeMode } from "@/components/navigation/ThemeProvider";
+import { cn } from "@/lib/utils";
+
+type PinnaMessage = {
+  id: string;
+  role: string;
+  content: string;
+  createdAt?: string;
+};
 
 type PinnaSeed = {
   id: string;
@@ -14,7 +22,8 @@ type PinnaSeed = {
     version: number;
     title: string | null;
   } | null;
-  messages?: Array<{ id: string; role: string; content: string }>;
+  messages?: PinnaMessage[];
+  hasOlderMessages?: boolean;
 };
 
 type PinnaNode = {
@@ -29,7 +38,8 @@ type PinnaNode = {
     version: number;
     title: string | null;
   } | null;
-  messages: Array<{ id: string; role: string; content: string }>;
+  messages: PinnaMessage[];
+  hasOlderMessages: boolean;
 };
 
 type PinnaLayout = {
@@ -121,6 +131,32 @@ function stringifyMetadataValue(value: unknown) {
   return null;
 }
 
+function renderChatMessageContent(content: string) {
+  const normalized = content.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+
+  return lines.map((line, lineIndex) => {
+    const parts = line.split(/(\*\*[^*]+\*\*)/g);
+
+    return (
+      <span key={`line-${lineIndex}`} className="block">
+        {parts.map((part, partIndex) => {
+          const boldMatch = part.match(/^\*\*([^*]+)\*\*$/);
+          if (boldMatch) {
+            return (
+              <strong key={`part-${lineIndex}-${partIndex}`} className="font-semibold text-[var(--foreground)]">
+                {boldMatch[1]}
+              </strong>
+            );
+          }
+
+          return <span key={`part-${lineIndex}-${partIndex}`}>{part}</span>;
+        })}
+      </span>
+    );
+  });
+}
+
 export function NotePinnaBoard({
   noteId,
   noteTitle,
@@ -144,6 +180,8 @@ export function NotePinnaBoard({
   initialPinnas: PinnaSeed[];
   initialLayout?: PinnaLayout | null;
 }) {
+  const { theme } = useThemeMode();
+  const isDarkTheme = theme === "dark";
   const boardRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const previousSceneRef = useRef<{ width: number; height: number } | null>(null);
@@ -153,10 +191,15 @@ export function NotePinnaBoard({
   const [isCentralOpen, setIsCentralOpen] = useState(false);
   const [draftMessage, setDraftMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [deletingPinnaId, setDeletingPinnaId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [boardSize, setBoardSize] = useState({ width: 0, height: 0 });
   const saveLayoutTimeoutRef = useRef<number | null>(null);
   const hasHydratedRef = useRef(false);
+  const chatScrollerRef = useRef<HTMLDivElement | null>(null);
+  const shouldStickToBottomRef = useRef(false);
   const sceneWidth = boardSize.width > 0 ? boardSize.width / zoom : 0;
   const sceneHeight = boardSize.height > 0 ? boardSize.height / zoom : 0;
   const nodeWidth = Math.min(360, Math.max(240, sceneWidth * 0.18));
@@ -166,21 +209,33 @@ export function NotePinnaBoard({
     const savedPositions = new Map(
       (initialLayout?.nodes || []).map((entry) => [entry.id, { x: entry.x, y: entry.y }]),
     );
-    const next = initialPinnas.slice(0, 5).map((pinna, index) => {
-      const saved = savedPositions.get(pinna.id);
-      return {
-        id: pinna.id,
-        threadId: pinna.threadId,
-        question: pinna.title || pinna.question,
-        title: pinna.title,
-        baseVersion: pinna.baseVersion || null,
-        x: saved?.x ?? 60 + index * 48,
-        y: saved?.y ?? 48 + index * 42,
-        messages: pinna.messages || [],
-      };
-    });
+    setNodes((current) => {
+      const currentById = new Map(current.map((node) => [node.id, node]));
+      const seeded = initialPinnas.map((pinna, index) => {
+        const saved = savedPositions.get(pinna.id);
+        const existing = currentById.get(pinna.id);
 
-    setNodes(next);
+        return {
+          id: pinna.id,
+          threadId: pinna.threadId,
+          question: pinna.title || pinna.question,
+          title: pinna.title,
+          baseVersion: pinna.baseVersion || null,
+          x: existing?.x ?? saved?.x ?? 60 + index * 48,
+          y: existing?.y ?? saved?.y ?? 48 + index * 42,
+          messages:
+            existing && existing.messages.length > 0
+              ? existing.messages
+              : pinna.messages || [],
+          hasOlderMessages:
+            existing?.hasOlderMessages ?? Boolean(pinna.hasOlderMessages),
+        };
+      });
+
+      const seededIds = new Set(seeded.map((node) => node.id));
+      const clientOnly = current.filter((node) => !seededIds.has(node.id));
+      return [...seeded, ...clientOnly];
+    });
     setZoom(initialLayout?.zoom && initialLayout.zoom > 0 ? initialLayout.zoom : 1);
     hasHydratedRef.current = true;
   }, [initialPinnas, initialLayout]);
@@ -236,6 +291,22 @@ export function NotePinnaBoard({
       const question = pinna.title || pinna.threadType || "Pinna";
 
       setNodes((current) => {
+        const existing = current.find((entry) => entry.id === pinna.id);
+        if (existing) {
+          return current.map((entry) =>
+            entry.id === pinna.id
+              ? {
+                  ...entry,
+                  threadId: pinna.threadId,
+                  question,
+                  title: pinna.title || question,
+                  baseVersion: pinna.baseVersion || null,
+                  messages: pinna.messages || entry.messages,
+                }
+              : entry,
+          );
+        }
+
         const angle = current.length * 0.8;
         const radius = Math.min(220, Math.max(120, sceneWidth * 0.18));
         const cx = sceneWidth / 2 + Math.cos(angle) * radius;
@@ -252,9 +323,11 @@ export function NotePinnaBoard({
             x: Math.max(24, cx - nodeWidth / 2),
             y: Math.max(24, cy - nodeHeight / 2),
             messages: pinna.messages || [],
+            hasOlderMessages: false,
           },
         ];
       });
+      setActiveNodeId(pinna.id);
     };
 
     window.addEventListener("add-pinna", handler as EventListener);
@@ -409,6 +482,125 @@ export function NotePinnaBoard({
     requestAnimationFrame(() => resizeComposer());
   }, [activeNodeId]);
 
+  useEffect(() => {
+    if (!activeNodeId) return;
+    requestAnimationFrame(() => {
+      const scroller = chatScrollerRef.current;
+      if (!scroller) return;
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+  }, [activeNodeId]);
+
+  useEffect(() => {
+    setDeleteError(null);
+  }, [activeNodeId]);
+
+  useEffect(() => {
+    if (!shouldStickToBottomRef.current) return;
+    requestAnimationFrame(() => {
+      const scroller = chatScrollerRef.current;
+      if (!scroller) return;
+      scroller.scrollTop = scroller.scrollHeight;
+      shouldStickToBottomRef.current = false;
+    });
+  }, [activeNode?.messages.length]);
+
+  async function loadOlderMessages(node: PinnaNode) {
+    if (loadingOlderMessages || !node.hasOlderMessages || node.messages.length === 0) return;
+
+    const oldestMessage = node.messages[0];
+    const beforeCreatedAt = oldestMessage.createdAt || null;
+    if (!beforeCreatedAt) return;
+
+    const scroller = chatScrollerRef.current;
+    const previousHeight = scroller?.scrollHeight || 0;
+    const previousTop = scroller?.scrollTop || 0;
+    setLoadingOlderMessages(true);
+
+    try {
+      const params = new URLSearchParams({
+        limit: "100",
+        beforeCreatedAt,
+      });
+      if (oldestMessage.id) {
+        params.set("beforeMessageId", oldestMessage.id);
+      }
+
+      const response = await fetch(`/api/threads/${node.threadId}?${params.toString()}`);
+      const payload = await response.json();
+      const messages: PinnaMessage[] = Array.isArray(payload?.messages)
+        ? payload.messages.map((message: PinnaMessage) => ({
+            id: message.id,
+            role: message.role,
+            content: message.content,
+            createdAt: message.createdAt,
+          }))
+        : [];
+
+      if (messages.length > 0) {
+        setNodes((current) =>
+          current.map((entry) =>
+            entry.id === node.id
+              ? {
+                  ...entry,
+                  messages: [...messages, ...entry.messages],
+                  hasOlderMessages: Boolean(payload?.pageInfo?.hasOlder),
+                }
+              : entry,
+          ),
+        );
+
+        requestAnimationFrame(() => {
+          const element = chatScrollerRef.current;
+          if (!element) return;
+          const nextHeight = element.scrollHeight;
+          element.scrollTop = nextHeight - previousHeight + previousTop;
+        });
+      } else {
+        setNodes((current) =>
+          current.map((entry) =>
+            entry.id === node.id
+              ? {
+                  ...entry,
+                  hasOlderMessages: false,
+                }
+              : entry,
+          ),
+        );
+      }
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  }
+
+  async function handleDeletePinna(node: PinnaNode) {
+    const confirmed = window.confirm(
+      "Delete this pinna and its thread history? This will also attempt to delete its Mem0 memory.",
+    );
+    if (!confirmed) return;
+
+    setDeleteError(null);
+    setDeletingPinnaId(node.id);
+
+    try {
+      const response = await fetch(`/api/pinnas/${node.id}`, {
+        method: "DELETE",
+      });
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(payload?.message || "Failed to delete pinna.");
+      }
+
+      setNodes((current) => current.filter((entry) => entry.id !== node.id));
+      setActiveNodeId(null);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Failed to delete pinna.");
+    } finally {
+      setDeletingPinnaId(null);
+    }
+  }
+
   return (
     <>
       <div
@@ -527,9 +719,15 @@ export function NotePinnaBoard({
           }}
         >
           <div className="mx-auto flex h-full max-w-[1700px] items-center justify-center px-4 py-4 sm:px-6 sm:py-5">
-            <div className="flex h-[88dvh] w-full max-w-[1500px] min-w-0 flex-col rounded-[28px] border border-white/20 bg-[rgba(242,242,242,0.72)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.34)] backdrop-blur-3xl dark:bg-[rgba(24,22,19,0.7)] sm:p-7">
-              <LoadingOverlay active={sending} label="Pinna is responding..." fullScreen={false} zIndexClass="z-10" />
-              <div className="mb-5 flex items-start justify-between border-b border-[var(--border)]/70 pb-5">
+            <div
+              className={cn(
+                "flex h-[88dvh] w-full max-w-[1500px] min-w-0 flex-col rounded-[34px] p-5 backdrop-blur-3xl sm:p-7",
+                isDarkTheme
+                  ? "border border-[rgba(242,239,233,0.1)] bg-[linear-gradient(180deg,rgba(20,18,17,0.98),rgba(11,10,9,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_44px_110px_-54px_rgba(0,0,0,0.82)]"
+                  : "border border-[rgba(186,170,146,0.16)] bg-[linear-gradient(180deg,rgba(251,247,240,0.98),rgba(244,237,227,0.95))] shadow-[inset_0_1px_0_rgba(255,255,255,0.82),0_34px_90px_-58px_rgba(115,91,56,0.16)]",
+              )}
+            >
+              <div className={cn("mb-5 flex items-start justify-between pb-5", isDarkTheme ? "border-b border-[rgba(242,239,233,0.12)]" : "border-b border-[var(--border)]/70")}>
                 <div>
                   <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Pinna chat</p>
                   <h3 className="mt-2 text-2xl font-semibold tracking-[-0.02em] sm:text-3xl">{activeNode.question}</h3>
@@ -539,32 +737,101 @@ export function NotePinnaBoard({
                     </p>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveNodeId(null)}
-                  className="rounded-[10px] border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 text-xs tracking-[0.08em] transition-colors hover:bg-[var(--surface)]"
-                >
-                  Close
-                </button>
+                <div className="flex shrink-0 flex-col items-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeleteError(null);
+                      setActiveNodeId(null);
+                    }}
+                    className={cn(
+                      "rounded-[16px] px-4 py-2.5 text-xs tracking-[0.08em] transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-[1px]",
+                      isDarkTheme
+                        ? "border border-[rgba(242,239,233,0.12)] bg-[rgba(31,28,24,0.96)] text-[rgba(242,239,233,0.96)] hover:bg-[rgba(42,38,33,0.98)]"
+                        : "border border-[rgba(186,170,146,0.14)] bg-[rgba(255,252,247,0.74)] text-[color:#5b4937] hover:bg-[rgba(255,254,250,0.9)]",
+                    )}
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeletePinna(activeNode)}
+                    disabled={deletingPinnaId === activeNode.id}
+                    className={cn(
+                      "min-w-[128px] rounded-[16px] px-4 py-2.5 text-xs tracking-[0.08em] transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-[1px] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60",
+                      isDarkTheme
+                        ? "border border-[rgba(219,104,104,0.72)] bg-[linear-gradient(180deg,rgba(128,38,38,0.96),rgba(98,27,27,0.96))] text-[color:#fff7f5] shadow-[0_20px_36px_-24px_rgba(108,24,24,0.82)] hover:bg-[linear-gradient(180deg,rgba(146,46,46,0.98),rgba(110,31,31,0.98))]"
+                        : "border border-[rgba(159,47,45,0.18)] bg-[rgba(253,235,236,0.9)] text-[color:#9f2f2d] hover:bg-[rgba(253,235,236,1)]",
+                    )}
+                  >
+                    {deletingPinnaId === activeNode.id ? "Deleting..." : "Delete pinna"}
+                  </button>
+                </div>
               </div>
 
               <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]">
-                <div className="flex min-h-0 min-w-0 flex-col border border-[var(--border)] bg-[rgba(233,233,233,0.66)] p-4 backdrop-blur-2xl dark:bg-[rgba(31,28,24,0.68)]">
-                  <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 sm:pr-2">
+                <div
+                  className={cn(
+                    "flex min-h-0 min-w-0 flex-col rounded-[30px] p-5 backdrop-blur-2xl",
+                    isDarkTheme
+                      ? "border border-[rgba(242,239,233,0.08)] bg-[linear-gradient(180deg,rgba(24,22,20,0.98),rgba(16,14,13,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_-40px_rgba(0,0,0,0.82)]"
+                      : "border border-[rgba(186,170,146,0.12)] bg-[linear-gradient(180deg,rgba(251,244,236,0.95),rgba(242,233,220,0.92))] shadow-[inset_0_1px_0_rgba(255,255,255,0.84),0_18px_44px_-34px_rgba(136,104,62,0.14)]",
+                  )}
+                >
+                  {deleteError ? (
+                    <div className={cn("mb-4 rounded-[20px] px-4 py-3 text-sm leading-6", isDarkTheme ? "border border-[rgba(214,114,114,0.28)] bg-[rgba(75,22,22,0.88)] text-[color:#f6cbc7]" : "border border-[rgba(159,47,45,0.18)] bg-[rgba(253,235,236,0.92)] text-[color:#7c2927]")}>
+                      {deleteError}
+                    </div>
+                  ) : null}
+                  <div
+                    ref={chatScrollerRef}
+                    className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 sm:pr-2"
+                    onScroll={(event) => {
+                      if (
+                        event.currentTarget.scrollTop < 80 &&
+                        activeNode &&
+                        activeNode.hasOlderMessages &&
+                        !loadingOlderMessages
+                      ) {
+                        void loadOlderMessages(activeNode);
+                      }
+                    }}
+                  >
+                    {activeNode.hasOlderMessages || loadingOlderMessages ? (
+                      <div className="sticky top-0 z-10 flex justify-center py-2">
+                        <div className={cn("rounded-full px-3 py-1.5 font-mono-ui text-[10px] uppercase tracking-[0.14em]", isDarkTheme ? "border border-[rgba(242,239,233,0.08)] bg-[rgba(28,25,22,0.94)] text-[rgba(184,177,163,0.92)]" : "border border-[rgba(186,170,146,0.12)] bg-[rgba(255,250,243,0.8)] text-[color:#8a7358] shadow-[0_10px_24px_-22px_rgba(100,78,47,0.16)]")}>
+                          {loadingOlderMessages ? "Loading older messages" : "Scroll up for earlier messages"}
+                        </div>
+                      </div>
+                    ) : null}
                     {activeNode.messages.map((message) => (
                       <div
                         key={message.id}
-                        className={`max-w-[78%] whitespace-pre-wrap break-words rounded-[20px] px-4 py-2.5 text-sm leading-6 sm:px-5 sm:text-[15px] ${
+                        className={cn(
+                          "max-w-[78%] whitespace-pre-wrap break-words rounded-[28px] px-5 py-3 text-sm leading-7 sm:px-6 sm:text-[15px]",
                           message.role === "user"
-                            ? "ml-auto bg-[var(--pastel-blue)] text-[var(--pastel-blue-text)]"
-                            : "mr-auto border border-[var(--border)] bg-[var(--surface-soft)] text-[var(--foreground)]"
-                        }`}
+                            ? isDarkTheme
+                              ? "ml-auto border border-[rgba(84,124,149,0.28)] bg-[linear-gradient(180deg,rgba(28,46,58,0.98),rgba(23,39,49,0.96))] text-[rgba(191,226,244,0.98)] shadow-[0_18px_32px_-28px_rgba(16,27,35,0.78)]"
+                              : "ml-auto border border-[rgba(145,170,192,0.14)] bg-[linear-gradient(180deg,rgba(219,233,245,0.98),rgba(205,222,236,0.95))] text-[color:#456989] shadow-[0_18px_36px_-28px_rgba(93,127,156,0.22)]"
+                            : isDarkTheme
+                              ? "mr-auto border border-[rgba(242,239,233,0.08)] bg-[linear-gradient(180deg,rgba(32,29,26,0.98),rgba(22,20,18,0.96))] text-[rgba(242,239,233,0.96)] shadow-[0_18px_32px_-28px_rgba(0,0,0,0.74)]"
+                              : "mr-auto border border-[rgba(196,179,154,0.12)] bg-[linear-gradient(180deg,rgba(255,253,249,0.98),rgba(248,242,233,0.96))] text-[color:#403226] shadow-[0_18px_36px_-28px_rgba(106,82,48,0.12)]",
+                        )}
                       >
-                        {message.content}
+                        {renderChatMessageContent(message.content)}
                       </div>
                     ))}
+                    {sending ? (
+                      <div className={cn("mr-auto max-w-[78%] rounded-[28px] px-5 py-3", isDarkTheme ? "border border-[rgba(242,239,233,0.08)] bg-[linear-gradient(180deg,rgba(32,29,26,0.98),rgba(22,20,18,0.96))] text-[rgba(242,239,233,0.96)] shadow-[0_18px_32px_-28px_rgba(0,0,0,0.74)]" : "border border-[rgba(196,179,154,0.12)] bg-[linear-gradient(180deg,rgba(255,253,249,0.98),rgba(248,242,233,0.96))] text-[color:#403226] shadow-[0_18px_36px_-28px_rgba(106,82,48,0.12)]")}>
+                        <div className="flex items-center gap-2">
+                          <span className={cn("inline-flex h-2.5 w-2.5 animate-[typing-bounce_1s_infinite] rounded-full [animation-delay:-0.2s]", isDarkTheme ? "bg-[color-mix(in_srgb,var(--foreground)_40%,transparent)]" : "bg-[rgba(141,114,76,0.38)]")} />
+                          <span className={cn("inline-flex h-2.5 w-2.5 animate-[typing-bounce_1s_infinite] rounded-full [animation-delay:-0.1s]", isDarkTheme ? "bg-[color-mix(in_srgb,var(--foreground)_40%,transparent)]" : "bg-[rgba(141,114,76,0.38)]")} />
+                          <span className={cn("inline-flex h-2.5 w-2.5 animate-[typing-bounce_1s_infinite] rounded-full", isDarkTheme ? "bg-[color-mix(in_srgb,var(--foreground)_40%,transparent)]" : "bg-[rgba(141,114,76,0.38)]")} />
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                  <div className="mt-5 shrink-0 min-w-0 flex items-end gap-3 border-t border-[var(--border)] pt-5">
+                  <div className={cn("mt-5 shrink-0 min-w-0 flex items-end gap-3 pt-5", isDarkTheme ? "border-t border-[rgba(242,239,233,0.1)]" : "border-t border-[var(--border)]")}>
                     <textarea
                       ref={inputRef}
                       value={draftMessage}
@@ -575,11 +842,21 @@ export function NotePinnaBoard({
                       onInput={resizeComposer}
                       rows={1}
                       placeholder="Ask this pinna..."
-                      className="min-h-12 max-h-24 w-full resize-none overflow-y-auto rounded-[16px] border border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3 text-sm leading-6 outline-none sm:text-[15px]"
+                      className={cn(
+                        "min-h-12 max-h-24 w-full resize-none overflow-y-auto rounded-[22px] px-5 py-3.5 text-sm leading-6 outline-none sm:text-[15px]",
+                        isDarkTheme
+                          ? "border border-[rgba(242,239,233,0.1)] bg-[rgba(20,18,16,0.98)] text-[rgba(242,239,233,0.96)] placeholder:text-[rgba(184,177,163,0.78)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                          : "border border-[rgba(196,179,154,0.12)] bg-[rgba(255,252,247,0.88)] text-[color:#3b2e22] placeholder:text-[color:#a48d71] shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]",
+                      )}
                     />
                     <button
                       type="button"
-                      className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-[var(--border)] bg-[var(--surface-soft)] text-[var(--foreground)] transition-colors hover:bg-[var(--surface)]"
+                      className={cn(
+                        "grid h-12 w-12 shrink-0 place-items-center rounded-full transition-all duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-[1px]",
+                        isDarkTheme
+                          ? "border border-[rgba(242,239,233,0.1)] bg-[rgba(24,22,20,0.98)] text-[rgba(242,239,233,0.92)] hover:bg-[rgba(36,32,29,0.98)]"
+                          : "border border-[rgba(196,179,154,0.12)] bg-[rgba(255,252,247,0.86)] text-[color:#6b5641] shadow-[0_14px_28px_-24px_rgba(107,82,47,0.14)] hover:bg-[rgba(252,247,239,0.96)]",
+                      )}
                       aria-label="Voice input"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4">
@@ -595,6 +872,7 @@ export function NotePinnaBoard({
                         const messagePayload = draftMessage.replace(/\r\n/g, "\n").trimEnd();
                         if (!messagePayload.trim()) return;
                         setSending(true);
+                        shouldStickToBottomRef.current = true;
                         setNodes((current) =>
                           current.map((node) =>
                             node.id === activeNode.id
@@ -602,7 +880,12 @@ export function NotePinnaBoard({
                                   ...node,
                                   messages: [
                                     ...node.messages,
-                                    { id: uid(), role: "user", content: messagePayload },
+                                    {
+                                      id: uid(),
+                                      role: "user",
+                                      content: messagePayload,
+                                      createdAt: new Date().toISOString(),
+                                    },
                                   ],
                                 }
                               : node,
@@ -618,9 +901,8 @@ export function NotePinnaBoard({
                             body: JSON.stringify({ userMessage: messagePayload }),
                           });
                           const payload = await response.json();
-                          const assistantContent =
-                            payload?.assistantMessage?.content ||
-                            (response.ok
+                          const assistantContent = payload?.assistantMessage?.content
+                            || (response.ok
                               ? "Response completed."
                               : payload?.message || "Pinna response failed.");
 
@@ -635,6 +917,9 @@ export function NotePinnaBoard({
                                         id: payload?.assistantMessage?.id || uid(),
                                         role: "assistant",
                                         content: assistantContent,
+                                        createdAt:
+                                          payload?.assistantMessage?.createdAt ||
+                                          new Date().toISOString(),
                                       },
                                     ],
                                   }
@@ -653,6 +938,7 @@ export function NotePinnaBoard({
                                         id: uid(),
                                         role: "assistant",
                                         content: "Network error while sending to pinna.",
+                                        createdAt: new Date().toISOString(),
                                       },
                                     ],
                                   }
@@ -664,16 +950,23 @@ export function NotePinnaBoard({
                         }
                       }}
                     >
-                      {sending ? "Sending..." : "Send"}
+                      {sending ? "Thinking..." : "Send"}
                     </button>
                   </div>
                 </div>
 
-                <aside className="min-h-0 min-w-0 overflow-y-auto border border-[var(--border)] bg-[var(--surface)] p-4">
+                <aside
+                  className={cn(
+                    "min-h-0 min-w-0 overflow-y-auto rounded-[30px] p-5",
+                    isDarkTheme
+                      ? "border border-[rgba(242,239,233,0.08)] bg-[linear-gradient(180deg,rgba(22,20,18,0.98),rgba(14,13,11,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_-40px_rgba(0,0,0,0.78)]"
+                      : "border border-[rgba(186,170,146,0.12)] bg-[linear-gradient(180deg,rgba(255,252,247,0.96),rgba(247,241,233,0.92))] shadow-[inset_0_1px_0_rgba(255,255,255,0.82),0_18px_44px_-34px_rgba(136,104,62,0.1)]",
+                  )}
+                >
                   <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Context spine</p>
                   <h4 className="mt-2 text-lg font-semibold tracking-[-0.02em]">Live note context</h4>
                   <div className="mt-4 space-y-3 text-sm leading-7 text-[var(--muted-foreground)]">
-                    <div className="rounded-[16px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+                    <div className={cn("rounded-[24px] p-5", isDarkTheme ? "border border-[rgba(242,239,233,0.08)] bg-[linear-gradient(180deg,rgba(31,28,25,0.98),rgba(22,20,18,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]" : "border border-[rgba(196,179,154,0.1)] bg-[rgba(255,251,246,0.82)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]")}>
                       <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
                         Summary
                       </p>
@@ -683,13 +976,13 @@ export function NotePinnaBoard({
                     </div>
                     {knowledgeSections ? (
                       <>
-                        <div className="rounded-[16px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+                        <div className={cn("rounded-[24px] p-5", isDarkTheme ? "border border-[rgba(242,239,233,0.08)] bg-[linear-gradient(180deg,rgba(31,28,25,0.98),rgba(22,20,18,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]" : "border border-[rgba(196,179,154,0.1)] bg-[rgba(255,251,246,0.82)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]")}>
                           <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
                             Key findings
                           </p>
                           <p className="mt-2 text-[var(--foreground)]">{knowledgeSections.keyFindings}</p>
                         </div>
-                        <div className="rounded-[16px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+                        <div className={cn("rounded-[24px] p-5", isDarkTheme ? "border border-[rgba(242,239,233,0.08)] bg-[linear-gradient(180deg,rgba(31,28,25,0.98),rgba(22,20,18,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]" : "border border-[rgba(196,179,154,0.1)] bg-[rgba(255,251,246,0.82)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]")}>
                           <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
                             User view
                           </p>
@@ -697,7 +990,7 @@ export function NotePinnaBoard({
                         </div>
                       </>
                     ) : (
-                      <div className="rounded-[16px] border border-[var(--border)] bg-[var(--surface-soft)] p-4">
+                      <div className={cn("rounded-[24px] p-5", isDarkTheme ? "border border-[rgba(242,239,233,0.08)] bg-[linear-gradient(180deg,rgba(31,28,25,0.98),rgba(22,20,18,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]" : "border border-[rgba(196,179,154,0.1)] bg-[rgba(255,251,246,0.82)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]")}>
                         <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
                           Build status
                         </p>

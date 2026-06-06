@@ -20,7 +20,7 @@ export const createSourceUrlSchema = z.object({
   doi: z.string().trim().optional().nullable(),
   url: z.string().trim().url().optional().nullable(),
   pdfUrl: z.string().trim().url().optional().nullable(),
-  metadata: z.record(z.any()).optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
 });
 
 export const createCaptureSchema = z.object({
@@ -65,7 +65,7 @@ export const createVoiceSessionSchema = z.object({
 });
 
 export const updateVoiceSessionSchema = z.object({
-  sourceJson: z.record(z.unknown()).optional(),
+  sourceJson: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const createVoiceScreenshotSessionSchema = z.object({
@@ -138,11 +138,15 @@ export const sendMessageSchema = z.object({
   userMessage: z.string().trim().min(1),
 });
 
+export const createThreadRunSchema = sendMessageSchema.extend({
+  stream: z.boolean().optional().default(false),
+});
+
 export const createThreadKnowledgeEventSchema = z.object({
   eventType: z.string().trim().min(1),
   actor: z.string().trim().optional(),
   messageRef: z.string().trim().optional(),
-  payload: z.record(z.any()).optional(),
+  payload: z.record(z.string(), z.any()).optional(),
   content: z.string().trim().optional(),
   importanceScore: z.number().optional(),
   confidenceScore: z.number().optional(),

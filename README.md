@@ -4,6 +4,8 @@
 
 openPinna is a browser-based research note-taking app for solo researchers. The MVP focuses on manual capture: save a source URL, source title, selected text, raw thought, tags, and placeholder AI structure for later synthesis.
 
+Agent roles for the note-level AI flow live under `skills/` as source-controlled `SKILL.md` files. The backend runs the pinna and observer flows through the standard Responses API and mounts those bundles as inline skills in the shell environment.
+
 ## Problem Statement
 
 Research notes often lose the context that made them useful: the article URL, the exact passage, the reader's immediate thought, and why the idea mattered. openPinna keeps those pieces together so future AI features can reason over grounded research context.
@@ -64,12 +66,13 @@ Update `DATABASE_URL` in `.env` if your local PostgreSQL credentials differ.
 | `UPLOAD_DIR` | Local upload root for source/capture files |
 | `SCREENSHOT_UPLOAD_DIR` | Local screenshot root, defaults to `./screenshots` |
 | `VOICE_UPLOAD_DIR` | Local voice audio root, defaults to `./audio` |
-| `OPENAI_API_KEY` | Required for backend voice transcription |
+| `OPENAI_API_KEY` | Required for backend voice transcription and pinna/observer agent runs |
 | `OPENAI_TRANSCRIPTION_MODEL` | Optional transcription model override |
+| `MEM0_BASE_URL` | Base URL for the local Mem0 REST server used by pinna memory |
 
 ## Database Setup
 
-Start local infrastructure first (Postgres + Redis via Docker):
+Start local infrastructure first (Postgres + Redis + Mem0 via Docker):
 
 ```bash
 npm run docker:up
@@ -311,15 +314,19 @@ Knowledge flows upward asynchronously only:
 | `DATABASE_URL` | PostgreSQL connection string |
 | `REDIS_URL` | Redis connection used by BullMQ |
 | `OPENAI_API_KEY` | Enables backend voice transcription and future model integrations |
+| `MEM0_BASE_URL` | Base URL for the local Mem0 REST API used by isolated pinna memory |
 | `OPENAI_TRANSCRIPTION_MODEL` | Optional backend transcription model override |
 | `UPLOAD_DIR` | Local upload root, defaults to `./uploads` |
 | `VOICE_UPLOAD_DIR` | Local voice audio root, defaults to `./audio` |
 | `POSTGRES_START_PORT` | Optional start port for Postgres dynamic scan (default `9001`) |
 | `REDIS_START_PORT` | Optional start port for Redis dynamic scan (default `9002`) |
+| `MEM0_START_PORT` | Optional start port for Mem0 API dynamic scan (default `9003`) |
+| `MEM0_DASHBOARD_START_PORT` | Optional start port for Mem0 dashboard dynamic scan (default `9004`) |
 
 ### Database Setup
 
-1. Start PostgreSQL and Redis with dynamic ports (`npm run docker:up`).
+1. Start PostgreSQL, Redis, and Mem0 with dynamic ports (`npm run docker:up`).
+   The script prints `DATABASE_URL`, `REDIS_URL`, and `MEM0_BASE_URL` for your local `.env`.
 2. Generate Prisma client:
 
 ```bash
@@ -344,6 +351,15 @@ Migration creates:
 npm run dev
 npm run workers:start
 ```
+
+### Mem0 Local Development
+
+`npm run docker:up` now also starts a self-hosted Mem0 stack for agent memory:
+
+- Mem0 API: `http://localhost:9003` by default
+- Mem0 dashboard: `http://localhost:9004` by default
+
+For local development the stack defaults to `MEM0_AUTH_DISABLED=true` so the openPinna backend can call Mem0 without an API-key bootstrap step. If you want the full Mem0 auth and dashboard setup flow, set `MEM0_AUTH_DISABLED=false` and provide a real `MEM0_JWT_SECRET` before starting the containers.
 
 ### Upload Behavior
 

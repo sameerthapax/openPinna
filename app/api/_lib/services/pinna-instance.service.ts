@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { normalizePinnaAgentConfig } from "@/src/agents/core/pinna-agent-config";
 
 type DbLike = Prisma.TransactionClient | typeof db;
 
@@ -230,11 +231,19 @@ export async function ensurePinnaForThread(threadId: string, tx: DbLike = db) {
     include: {
       pinna: {
         include: {
-          pinnaTemplate: true,
+          pinnaTemplate: {
+            include: {
+              defaultSkill: true,
+            },
+          },
           selectedBaseKnowledgeVersion: true,
         },
       },
-      pinnaTemplate: true,
+      pinnaTemplate: {
+        include: {
+          defaultSkill: true,
+        },
+      },
     },
   });
 
@@ -243,7 +252,42 @@ export async function ensurePinnaForThread(threadId: string, tx: DbLike = db) {
   }
 
   if (thread.pinna) {
-    return thread.pinna;
+    const skillKey =
+      thread.pinnaTemplate?.defaultSkillKey ||
+      thread.pinnaTemplate?.defaultSkill?.key ||
+      thread.pinnaTemplate?.key ||
+      thread.threadType;
+    const agentConfig = normalizePinnaAgentConfig(thread.pinna.agentConfig, {
+      pinnaId: thread.pinna.id,
+      skillKey,
+    });
+
+    const requiresUpdate =
+      JSON.stringify(thread.pinna.agentConfig ?? null) !== JSON.stringify(agentConfig);
+
+    if (!requiresUpdate) {
+      return thread.pinna;
+    }
+
+    await tx.pinna.update({
+      where: { id: thread.pinna.id },
+      data: {
+        agentMode: "server-run-loop",
+        agentConfig: agentConfig as Prisma.InputJsonValue,
+      },
+    });
+
+    return tx.pinna.findUnique({
+      where: { id: thread.pinna.id },
+      include: {
+        pinnaTemplate: {
+          include: {
+            defaultSkill: true,
+          },
+        },
+        selectedBaseKnowledgeVersion: true,
+      },
+    });
   }
 
   const baseVersion = await resolveNoteBaseKnowledgeVersion(thread.noteId, "current", tx);
@@ -257,6 +301,24 @@ export async function ensurePinnaForThread(threadId: string, tx: DbLike = db) {
       selectedBaseKnowledgeVersionId: baseVersion.id,
       title: thread.title,
       status: thread.status,
+      agentMode: "server-run-loop",
+    },
+  });
+
+  const normalizedConfig = normalizePinnaAgentConfig(pinna.agentConfig, {
+    pinnaId: pinna.id,
+    skillKey:
+      thread.pinnaTemplate?.defaultSkillKey ||
+      thread.pinnaTemplate?.defaultSkill?.key ||
+      thread.pinnaTemplate?.key ||
+      thread.threadType,
+  });
+
+  await tx.pinna.update({
+    where: { id: pinna.id },
+    data: {
+      agentMode: "server-run-loop",
+      agentConfig: normalizedConfig as Prisma.InputJsonValue,
     },
   });
 
@@ -268,7 +330,11 @@ export async function ensurePinnaForThread(threadId: string, tx: DbLike = db) {
   return tx.pinna.findUnique({
     where: { id: pinna.id },
     include: {
-      pinnaTemplate: true,
+      pinnaTemplate: {
+        include: {
+          defaultSkill: true,
+        },
+      },
       selectedBaseKnowledgeVersion: true,
     },
   });
@@ -300,9 +366,34 @@ export async function createPinnaWithThread(input: {
         selectedBaseKnowledgeVersionId: baseVersion.id,
         title: input.title || null,
         status: "active",
+        agentMode: "server-run-loop",
       },
       include: {
-        pinnaTemplate: true,
+        pinnaTemplate: {
+          include: {
+            defaultSkill: true,
+          },
+        },
+        selectedBaseKnowledgeVersion: true,
+      },
+    });
+
+    const agentConfig = normalizePinnaAgentConfig(pinna.agentConfig, {
+      pinnaId: pinna.id,
+      skillKey: input.pinnaTemplateKey,
+    });
+
+    const hydratedPinna = await tx.pinna.update({
+      where: { id: pinna.id },
+      data: {
+        agentConfig: agentConfig as Prisma.InputJsonValue,
+      },
+      include: {
+        pinnaTemplate: {
+          include: {
+            defaultSkill: true,
+          },
+        },
         selectedBaseKnowledgeVersion: true,
       },
     });
@@ -320,11 +411,15 @@ export async function createPinnaWithThread(input: {
       },
       include: {
         messages: true,
-        pinnaTemplate: true,
+        pinnaTemplate: {
+          include: {
+            defaultSkill: true,
+          },
+        },
       },
     });
 
-    return { pinna, thread, baseVersion };
+    return { pinna: hydratedPinna, thread, baseVersion };
   });
 }
 
@@ -332,11 +427,20 @@ export async function listPinnasByNote(noteId: string) {
   const pinnas = await db.pinna.findMany({
     where: { noteId },
     include: {
-      pinnaTemplate: true,
+      pinnaTemplate: {
+        include: {
+          defaultSkill: true,
+        },
+      },
       selectedBaseKnowledgeVersion: true,
       chatThreads: {
         include: {
-          messages: { orderBy: { createdAt: "asc" } },
+          _count: {
+            select: {
+              messages: true,
+            },
+          },
+          messages: { take: 100, orderBy: [{ createdAt: "desc" }, { id: "desc" }] },
         },
         orderBy: { createdAt: "asc" },
       },
@@ -361,15 +465,72 @@ export async function listPinnasByNote(noteId: string) {
   return db.pinna.findMany({
     where: { noteId },
     include: {
-      pinnaTemplate: true,
+      pinnaTemplate: {
+        include: {
+          defaultSkill: true,
+        },
+      },
       selectedBaseKnowledgeVersion: true,
       chatThreads: {
         include: {
-          messages: { orderBy: { createdAt: "asc" } },
+          _count: {
+            select: {
+              messages: true,
+            },
+          },
+          messages: { take: 100, orderBy: [{ createdAt: "desc" }, { id: "desc" }] },
         },
         orderBy: { createdAt: "asc" },
       },
     },
     orderBy: { createdAt: "asc" },
   });
+}
+
+export async function ensurePinnaRuntimeConfig(
+  pinnaId: string,
+  tx: DbLike = db,
+) {
+  const pinna = await tx.pinna.findUnique({
+    where: { id: pinnaId },
+    include: {
+      pinnaTemplate: {
+        include: {
+          defaultSkill: true,
+        },
+      },
+    },
+  });
+
+  if (!pinna) {
+    throw new Error("Pinna not found.");
+  }
+
+  const skillKey =
+    pinna.pinnaTemplate?.defaultSkillKey ||
+    pinna.pinnaTemplate?.defaultSkill?.key ||
+    pinna.pinnaTemplate?.key ||
+    "claim";
+  const agentConfig = normalizePinnaAgentConfig(pinna.agentConfig, {
+    pinnaId: pinna.id,
+    skillKey,
+  });
+
+  const requiresUpdate =
+    pinna.agentMode !== "server-run-loop" ||
+    JSON.stringify(pinna.agentConfig ?? null) !== JSON.stringify(agentConfig);
+
+  if (!requiresUpdate) {
+    return agentConfig;
+  }
+
+  await tx.pinna.update({
+    where: { id: pinna.id },
+    data: {
+      agentMode: "server-run-loop",
+      agentConfig: agentConfig as Prisma.InputJsonValue,
+    },
+  });
+
+  return agentConfig;
 }
