@@ -1,0 +1,16 @@
+{
+  "key": "deep-research",
+  "displayName": "Deep Research Agent",
+  "scope": "PROJECT",
+  "version": "1.0.0",
+  "defaultModel": "gpt-4.1",
+  "requiresShell": true,
+  "allowedTools": [
+    "openai_web_search",
+    "download_source",
+    "extract_pdf_text",
+    "build_research_synthesis",
+    "write_project_knowledge"
+  ],
+  "outputFormat": "json_object"
+}

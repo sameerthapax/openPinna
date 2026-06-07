@@ -1,0 +1,12 @@
+{
+  "key": "session-synthesizer",
+  "displayName": "Session Synthesizer",
+  "scope": "SESSION",
+  "version": "1.0.0",
+  "defaultModel": "gpt-4.1-mini",
+  "requiresShell": false,
+  "allowedTools": [
+    "get_available_skills"
+  ],
+  "outputFormat": "json_object"
+}

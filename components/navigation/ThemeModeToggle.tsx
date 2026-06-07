@@ -1,32 +1,10 @@
 "use client";
 
 import { MoonIcon, SunIcon } from "@radix-ui/react-icons";
-import { useEffect, useState } from "react";
-
-type ThemeMode = "light" | "dark";
-
-function getPreferredTheme(): ThemeMode {
-  if (typeof window === "undefined") return "light";
-  const saved = window.localStorage.getItem("openpinna-theme");
-  if (saved === "light" || saved === "dark") return saved;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
+import { useThemeMode } from "@/components/navigation/ThemeProvider";
 
 export function ThemeModeToggle() {
-  const [theme, setTheme] = useState<ThemeMode>("light");
-
-  useEffect(() => {
-    const nextTheme = getPreferredTheme();
-    setTheme(nextTheme);
-    document.documentElement.classList.toggle("dark", nextTheme === "dark");
-  }, []);
-
-  function toggleTheme() {
-    const nextTheme = theme === "dark" ? "light" : "dark";
-    setTheme(nextTheme);
-    document.documentElement.classList.toggle("dark", nextTheme === "dark");
-    window.localStorage.setItem("openpinna-theme", nextTheme);
-  }
+  const { theme, toggleTheme } = useThemeMode();
 
   const isDark = theme === "dark";
 

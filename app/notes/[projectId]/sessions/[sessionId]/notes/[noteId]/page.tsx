@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { getNoteProcessingState } from "@/app/api/_lib/services/note.service";
+import { listPinnasByNote } from "@/app/api/_lib/services/pinna-instance.service";
 import {
   NoteKnowledgeBuildPanel,
   NoteSelectedTextPanel,
@@ -40,7 +41,7 @@ function normalizeAuthorList(value: unknown): string[] {
 export default async function NoteResearchPage({ params }: { params: Promise<{ projectId: string; sessionId: string; noteId: string }> }) {
   const { projectId, sessionId, noteId } = await params;
 
-  const [note, processingStatus] = await Promise.all([
+  const [note, processingStatus, pinnas] = await Promise.all([
     db.note.findUnique({
       where: { id: noteId },
       include: {
@@ -51,29 +52,36 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
         voiceSession: { include: { screenshotSession: true } },
         noteKnowledge: true,
         linkedNoteKnowledge: true,
-        chatThreads: {
+        baseKnowledgeHead: {
           include: {
-            messages: { orderBy: { createdAt: "asc" } },
-            pinnaTemplate: true,
+            currentVersion: true,
           },
-          orderBy: { createdAt: "asc" },
         },
       },
     }),
     getNoteProcessingState(noteId),
+    listPinnasByNote(noteId),
   ]);
 
   if (!note || note.sessionId !== sessionId || note.session.projectId !== projectId) notFound();
   const noteTitle = note.source?.title || note.source?.url || "No source";
   const selectedText = note.noteText || "";
   const noteOpinion = note.userCommentary || "";
-  const noteKnowledge = note.linkedNoteKnowledge || note.noteKnowledge || null;
+  const noteKnowledge =
+    note.baseKnowledgeHead?.currentVersion ||
+    note.linkedNoteKnowledge ||
+    note.noteKnowledge ||
+    null;
   const sessionDateLabel = new Date(note.session.sessionKey).toLocaleDateString();
   const sourceMetadata =
     note.source?.metadata && typeof note.source.metadata === "object" && !Array.isArray(note.source.metadata)
       ? (note.source.metadata as Record<string, unknown>)
       : {};
-  const knowledgeAuthors = normalizeAuthorList(note.linkedNoteKnowledge?.authors ?? note.noteKnowledge?.authors);
+  const knowledgeAuthors = normalizeAuthorList(
+    note.baseKnowledgeHead?.currentVersion?.authors ??
+      note.linkedNoteKnowledge?.authors ??
+      note.noteKnowledge?.authors,
+  );
   const metadataAuthors =
     [
       sourceMetadata.authors,
@@ -169,16 +177,39 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
                   }
                 : null
             }
-            initialThreads={note.chatThreads.map((thread) => ({
-              id: thread.id,
-              question: thread.title || thread.pinnaTemplate?.defaultTitle || thread.threadType,
-              title: thread.title,
-              messages: thread.messages.map((message) => ({
-                id: message.id,
-                role: message.role,
-                content: message.content,
-              })),
-            }))}
+            initialPinnas={pinnas.map((pinna) => {
+              const primaryThread = pinna.chatThreads[0] || null;
+              return {
+                id: pinna.id,
+                threadId: primaryThread?.id || pinna.id,
+                question:
+                  pinna.title ||
+                  pinna.pinnaTemplate?.defaultTitle ||
+                  primaryThread?.title ||
+                  primaryThread?.threadType ||
+                  "Pinna",
+                title: pinna.title || primaryThread?.title,
+                baseVersion:
+                  pinna.selectedBaseKnowledgeVersion != null
+                    ? {
+                        id: pinna.selectedBaseKnowledgeVersion.id,
+                        version: pinna.selectedBaseKnowledgeVersion.version,
+                        title: pinna.selectedBaseKnowledgeVersion.title,
+                      }
+                    : null,
+                messages:
+                  primaryThread?.messages
+                    .slice()
+                    .reverse()
+                    .map((message) => ({
+                    id: message.id,
+                    role: message.role,
+                    content: message.content,
+                    createdAt: message.createdAt.toISOString(),
+                  })) || [],
+                hasOlderMessages: (primaryThread?._count.messages || 0) > (primaryThread?.messages.length || 0),
+              };
+            })}
             initialLayout={
               note.pinnaLayout &&
               typeof note.pinnaLayout === "object" &&
@@ -207,7 +238,10 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
                     userView: noteKnowledge.userView,
                     conclusion: noteKnowledge.conclusion,
                     model: noteKnowledge.model,
-                    updatedAt: noteKnowledge.updatedAt.toISOString(),
+                    updatedAt:
+                      "updatedAt" in noteKnowledge
+                        ? noteKnowledge.updatedAt.toISOString()
+                        : noteKnowledge.createdAt.toISOString(),
                   }
                 : null
             }

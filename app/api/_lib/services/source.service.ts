@@ -3,6 +3,20 @@ import { db } from "@/lib/db";
 import { sourceDir, writeUploadedFile } from "@/app/api/_lib/storage";
 import { sourceProcessingQueue } from "@/app/api/_lib/queues";
 
+type SourceUrlInput = {
+  sourceType?: string | null;
+  title?: string | null;
+  abstract?: string | null;
+  authors?: string[] | null;
+  publicationYear?: number | null;
+  publicationDate?: string | null;
+  venue?: string | null;
+  doi?: string | null;
+  url?: string | null;
+  pdfUrl?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
 export async function createSourceFromUpload(
   projectId: string,
   sessionId: string,
@@ -26,7 +40,11 @@ export async function createSourceFromUpload(
   return source;
 }
 
-export async function createSourceFromUrl(projectId: string, sessionId: string, input: any) {
+export async function createSourceFromUrl(
+  projectId: string,
+  sessionId: string,
+  input: SourceUrlInput,
+) {
   const source = await db.source.create({
     data: {
       projectId,

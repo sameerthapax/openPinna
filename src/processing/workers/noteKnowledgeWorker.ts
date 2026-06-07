@@ -1,6 +1,7 @@
 import path from "node:path";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { createNoteBaseKnowledgeVersion } from "@/app/api/_lib/services/pinna-instance.service";
 import { runLocalScreenshotOcrTasks } from "@/src/processing/localScreenshotOcr";
 import {
   buildNoteKnowledge,
@@ -664,6 +665,50 @@ export async function processNoteKnowledgeJob(job: ProcessingJobRecord) {
     publicationDate: metadataSummary.publicationDate || existingPublicationDate,
   });
 
+  const sourceSnapshot = asJsonValue({
+    sourceUrl: context.sourceUrl,
+    sourceTitle: context.sourceTitle,
+    selectedText: context.selectedText,
+    transcriptText: context.transcriptText,
+    screenshotInfo: context.screenshotSession
+      ? {
+          finalizedSummary: context.screenshotSession.finalizedSummary,
+          importantContext: context.screenshotSession.importantContext,
+          finalizationStatus: context.screenshotSession.finalizationStatus,
+          finalizationError: context.screenshotSession.finalizationError,
+        }
+      : null,
+    existingSourceMetadata: finalNote.source
+      ? {
+          title: finalNote.source.title,
+          authors: existingAuthors,
+          abstract: finalNote.source.abstract,
+          publicationDate: existingPublicationDate,
+          metadata: finalNote.source.metadata,
+        }
+      : null,
+  });
+
+  const baseKnowledgeVersion = await createNoteBaseKnowledgeVersion({
+    noteId: finalNote.id,
+    sourceId: finalNote.sourceId,
+    projectId: finalNote.projectId,
+    sessionId: finalNote.sessionId,
+    title: metadataSummary.title || context.sourceTitle,
+    authors:
+      metadataSummary.authors.length > 0
+        ? metadataSummary.authors
+        : existingAuthors,
+    publicationDate: metadataSummary.publicationDate || existingPublicationDate,
+    abstract: metadataSummary.abstract || finalNote.source?.abstract || null,
+    summary: metadataSummary.summary,
+    keyFindings: knowledge.keyFindings,
+    userView: knowledge.userView,
+    conclusion: knowledge.conclusion,
+    model: knowledge.model || metadataSummary.model || getProcessingModel(),
+    sourceSnapshot,
+  });
+
   const noteKnowledge = await db.noteKnowledge.upsert({
     where: { noteId: finalNote.id },
     update: {
@@ -684,29 +729,7 @@ export async function processNoteKnowledgeJob(job: ProcessingJobRecord) {
       userView: knowledge.userView,
       conclusion: knowledge.conclusion,
       model: knowledge.model || metadataSummary.model || getProcessingModel(),
-      sourceSnapshot: asJsonValue({
-        sourceUrl: context.sourceUrl,
-        sourceTitle: context.sourceTitle,
-        selectedText: context.selectedText,
-        transcriptText: context.transcriptText,
-        screenshotInfo: context.screenshotSession
-          ? {
-              finalizedSummary: context.screenshotSession.finalizedSummary,
-              importantContext: context.screenshotSession.importantContext,
-              finalizationStatus: context.screenshotSession.finalizationStatus,
-              finalizationError: context.screenshotSession.finalizationError,
-            }
-          : null,
-        existingSourceMetadata: finalNote.source
-          ? {
-              title: finalNote.source.title,
-              authors: existingAuthors,
-              abstract: finalNote.source.abstract,
-              publicationDate: existingPublicationDate,
-              metadata: finalNote.source.metadata,
-            }
-          : null,
-      }),
+      sourceSnapshot,
       updatedAt: new Date(),
     },
     create: {
@@ -728,29 +751,7 @@ export async function processNoteKnowledgeJob(job: ProcessingJobRecord) {
       userView: knowledge.userView,
       conclusion: knowledge.conclusion,
       model: knowledge.model || metadataSummary.model || getProcessingModel(),
-      sourceSnapshot: asJsonValue({
-        sourceUrl: context.sourceUrl,
-        sourceTitle: context.sourceTitle,
-        selectedText: context.selectedText,
-        transcriptText: context.transcriptText,
-        screenshotInfo: context.screenshotSession
-          ? {
-              finalizedSummary: context.screenshotSession.finalizedSummary,
-              importantContext: context.screenshotSession.importantContext,
-              finalizationStatus: context.screenshotSession.finalizationStatus,
-              finalizationError: context.screenshotSession.finalizationError,
-            }
-          : null,
-        existingSourceMetadata: finalNote.source
-          ? {
-              title: finalNote.source.title,
-              authors: existingAuthors,
-              abstract: finalNote.source.abstract,
-              publicationDate: existingPublicationDate,
-              metadata: finalNote.source.metadata,
-            }
-          : null,
-      }),
+      sourceSnapshot,
     },
   });
 
@@ -776,7 +777,8 @@ export async function processNoteKnowledgeJob(job: ProcessingJobRecord) {
     jobId: job.id,
     noteId: finalNote.id,
     noteKnowledgeId: noteKnowledge.id,
+    baseKnowledgeVersionId: baseKnowledgeVersion.id,
   });
 
-  return noteKnowledge;
+  return baseKnowledgeVersion;
 }

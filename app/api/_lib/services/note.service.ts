@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { enqueueNoteKnowledgeJobForNoteId } from "@/src/processing";
+import { ensureNoteBaseKnowledgeHead } from "@/app/api/_lib/services/pinna-instance.service";
 
 export type NoteProcessingState =
   | {
@@ -61,6 +62,8 @@ export async function createNote(input: {
 }
 
 export async function getNote(noteId: string) {
+  await ensureNoteBaseKnowledgeHead(noteId);
+
   return db.note.findUnique({
     where: { id: noteId },
     include: {
@@ -75,17 +78,29 @@ export async function getNote(noteId: string) {
       },
       noteKnowledge: true,
       linkedNoteKnowledge: true,
+      baseKnowledgeHead: {
+        include: { currentVersion: true },
+      },
     },
   });
 }
 
 export async function getNoteProcessingState(noteId: string): Promise<NoteProcessingState> {
+  await ensureNoteBaseKnowledgeHead(noteId);
+
   const [note, activeJob, latestHistory] = await Promise.all([
     db.note.findUnique({
       where: { id: noteId },
       select: {
         linkedNoteKnowledge: { select: { id: true, updatedAt: true } },
         noteKnowledge: { select: { id: true, updatedAt: true } },
+        baseKnowledgeHead: {
+          select: {
+            currentVersion: {
+              select: { id: true, createdAt: true },
+            },
+          },
+        },
       },
     }),
     db.processingJobOutbox.findFirst({
@@ -98,7 +113,11 @@ export async function getNoteProcessingState(noteId: string): Promise<NoteProces
     }),
   ]);
 
-  const knowledge = note?.linkedNoteKnowledge || note?.noteKnowledge || null;
+  const knowledge =
+    note?.baseKnowledgeHead?.currentVersion ||
+    note?.linkedNoteKnowledge ||
+    note?.noteKnowledge ||
+    null;
 
   if (activeJob) {
     return {
@@ -131,7 +150,8 @@ export async function getNoteProcessingState(noteId: string): Promise<NoteProces
       activeJobId: null,
       attempts: latestHistory?.attempts ?? null,
       maxAttempts: latestHistory?.maxAttempts ?? null,
-      updatedAt: knowledge.updatedAt,
+      updatedAt:
+        "updatedAt" in knowledge ? knowledge.updatedAt : knowledge.createdAt,
       lastError: latestHistory?.finalStatus === "failed" ? latestHistory.lastError : null,
     };
   }

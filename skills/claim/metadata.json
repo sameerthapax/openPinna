@@ -1,0 +1,7 @@
+{
+  "displayName": "Claim Analyst",
+  "description": "Extract, refine, and challenge grounded research claims.",
+  "version": "1.0.0",
+  "defaultModel": "gpt-5.4-mini",
+  "allowedToolScopes": ["note"]
+}

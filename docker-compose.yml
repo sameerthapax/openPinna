@@ -32,6 +32,132 @@ services:
       timeout: 3s
       retries: 20
 
+  mem0-postgres:
+    image: ankane/pgvector:v0.5.1
+    container_name: openpinna-mem0-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${MEM0_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${MEM0_POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${MEM0_POSTGRES_DB:-postgres}
+    volumes:
+      - mem0_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${MEM0_POSTGRES_USER:-postgres} -d ${MEM0_POSTGRES_DB:-postgres}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mem0:
+    build:
+      context: https://github.com/mem0ai/mem0.git#main
+      dockerfile: server/dev.Dockerfile
+    container_name: openpinna-mem0
+    restart: unless-stopped
+    depends_on:
+      mem0-postgres:
+        condition: service_healthy
+    ports:
+      - "${MEM0_PORT:-9003}:8000"
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: ""
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      POSTGRES_HOST: mem0-postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${MEM0_POSTGRES_DB:-postgres}
+      POSTGRES_USER: ${MEM0_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${MEM0_POSTGRES_PASSWORD:-postgres}
+      POSTGRES_COLLECTION_NAME: ${MEM0_POSTGRES_COLLECTION_NAME:-mem0}
+      DASHBOARD_URL: http://localhost:${MEM0_DASHBOARD_PORT:-9004}
+      APP_DB_NAME: ${MEM0_APP_DB_NAME:-postgres}
+      HISTORY_DB_PATH: /app/history/history.db
+      JWT_SECRET: ${MEM0_JWT_SECRET:-mem0-local-dev-secret}
+      AUTH_DISABLED: ${MEM0_AUTH_DISABLED:-true}
+      ADMIN_API_KEY: ${MEM0_ADMIN_API_KEY:-}
+      MEM0_TELEMETRY: ${MEM0_TELEMETRY:-false}
+      MEM0_DEFAULT_LLM_MODEL: ${MEM0_DEFAULT_LLM_MODEL:-gpt-4.1-nano-2025-04-14}
+      MEM0_DEFAULT_EMBEDDER_MODEL: ${MEM0_DEFAULT_EMBEDDER_MODEL:-text-embedding-3-small}
+      REQUEST_LOG_RETENTION_DAYS: ${MEM0_REQUEST_LOG_RETENTION_DAYS:-30}
+    command: >
+      sh -c "mkdir -p /app/history /root/.mem0 /app/~/.mem0 &&
+      pip install -q --force-reinstall --no-deps mem0ai &&
+      alembic upgrade head &&
+      uvicorn main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://localhost:8000/auth/setup-status >/dev/null 2>&1 || wget -qO- http://localhost:8000/docs >/dev/null 2>&1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  mem0-dashboard:
+    build:
+      context: https://github.com/mem0ai/mem0.git#main:server/dashboard
+      dockerfile_inline: |
+        FROM node:22-alpine AS base
+        RUN apk add --no-cache libc6-compat
+        WORKDIR /app
+
+        FROM base AS deps
+        COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
+        RUN if [ -f yarn.lock ]; then yarn --frozen-lockfile --network-timeout 600000; \
+          elif [ -f package-lock.json ]; then npm ci; \
+          elif [ -f pnpm-lock.yaml ]; then npm install --legacy-peer-deps; \
+          else npm install --legacy-peer-deps; \
+          fi
+
+        FROM base AS builder
+        WORKDIR /app
+        COPY --from=deps /app/node_modules ./node_modules
+        COPY . .
+        ENV NEXT_TELEMETRY_DISABLED=1
+        ENV NEXT_PUBLIC_API_URL=NEXT_PUBLIC_API_URL
+        ENV NEXT_PUBLIC_INSTANCE_NAME=NEXT_PUBLIC_INSTANCE_NAME
+        RUN npm run build
+
+        FROM base AS runner
+        WORKDIR /app
+        ENV NODE_ENV=production
+        ENV NEXT_TELEMETRY_DISABLED=1
+        RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+        COPY --from=builder /app/public ./public
+        COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+        COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+        COPY --chown=nextjs:nodejs entrypoint.sh /home/nextjs/entrypoint.sh
+        RUN chmod +x /home/nextjs/entrypoint.sh
+        USER nextjs
+        EXPOSE 3000
+        ENV PORT=3000
+        ENV HOSTNAME="0.0.0.0"
+        ENTRYPOINT ["/home/nextjs/entrypoint.sh"]
+        CMD ["node", "server.js"]
+    container_name: openpinna-mem0-dashboard
+    restart: unless-stopped
+    depends_on:
+      mem0:
+        condition: service_healthy
+    ports:
+      - "${MEM0_DASHBOARD_PORT:-9004}:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:${MEM0_PORT:-9003}
+      API_INTERNAL_URL: http://mem0:8000
+      NEXT_PUBLIC_INSTANCE_NAME: openPinna Mem0
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   postgres_data:
   redis_data:
+  mem0_postgres_data:

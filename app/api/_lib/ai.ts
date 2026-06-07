@@ -72,7 +72,8 @@ export async function summarizeText(parts: string[], label: string) {
   return `${label} summary (MVP placeholder): ${merged.slice(0, 500)}`;
 }
 
-export async function maybeEmbed(_text: string): Promise<number[] | null> {
+export async function maybeEmbed(text: string): Promise<number[] | null> {
+  void text;
   if (!process.env.OPENAI_API_KEY) {
     return null;
   }

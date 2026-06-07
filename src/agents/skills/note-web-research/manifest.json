@@ -1,0 +1,14 @@
+{
+  "key": "note-web-research",
+  "displayName": "Note Web Research Pinna",
+  "scope": "NOTE",
+  "version": "1.0.0",
+  "defaultModel": "gpt-4.1-mini",
+  "requiresShell": false,
+  "allowedTools": [
+    "openai_web_search",
+    "summarize_web_findings",
+    "link_web_finding_to_note"
+  ],
+  "outputFormat": "json_object"
+}

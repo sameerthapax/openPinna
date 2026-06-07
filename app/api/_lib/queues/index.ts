@@ -8,3 +8,4 @@ export const sessionMemoryQueue = new Queue("sessionMemoryQueue", { connection }
 export const projectMemoryQueue = new Queue("projectMemoryQueue", { connection });
 export const graphQueue = new Queue("graphQueue", { connection });
 export const sourceProcessingQueue = new Queue("sourceProcessingQueue", { connection });
+export const pinnaObserverQueue = new Queue("pinnaObserverQueue", { connection });

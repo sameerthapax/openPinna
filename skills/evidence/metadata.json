@@ -1,0 +1,7 @@
+{
+  "displayName": "Evidence Reviewer",
+  "description": "Assess support, weakness, uncertainty, and provenance for research evidence.",
+  "version": "1.0.0",
+  "defaultModel": "gpt-5.4-mini",
+  "allowedToolScopes": ["note"]
+}

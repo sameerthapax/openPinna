@@ -1,19 +1,21 @@
 import { db } from "@/lib/db";
-import { threadMemoryQueue } from "@/app/api/_lib/queues";
-import { generateAssistantReply, parseToolDirective } from "@/app/api/_lib/ai";
+import { Prisma } from "@prisma/client";
 import { getPinnaTemplateByKey } from "@/app/api/_lib/services/pinna.service";
 import {
-  executeTool,
-  getAllowedToolsForAgent,
-  validateToolAllowed,
-} from "@/app/api/_lib/services/tool-registry.service";
-import { Prisma } from "@prisma/client";
+  createPinnaWithThread,
+  ensurePinnaForThread,
+  PinnaBaseSelection,
+} from "@/app/api/_lib/services/pinna-instance.service";
+import { runPinnaThreadTurn } from "@/src/agents/core/agent-orchestrator";
+
+const DEFAULT_THREAD_PAGE_SIZE = 100;
 
 export async function createThread(input: {
   projectId: string;
   sessionId: string;
   noteId: string;
   pinnaTemplateKey: string;
+  baseSelection: PinnaBaseSelection;
   title?: string | null;
   customInstructions?: string | null;
 }) {
@@ -22,16 +24,19 @@ export async function createThread(input: {
     throw new Error("Pinna template not found.");
   }
 
-  return db.chatThread.create({
-    data: {
-      projectId: input.projectId,
-      sessionId: input.sessionId,
-      noteId: input.noteId,
-      pinnaTemplateId: template.id,
-      threadType: template.key,
-      title: input.title || template.defaultTitle || null,
-      customInstructions: input.customInstructions || null,
-    },
+  if (template.scope !== "NOTE") {
+    throw new Error("Only note-scoped templates can be created from the note thread API.");
+  }
+
+  return createPinnaWithThread({
+    projectId: input.projectId,
+    sessionId: input.sessionId,
+    noteId: input.noteId,
+    pinnaTemplateId: template.id,
+    pinnaTemplateKey: template.key,
+    baseSelection: input.baseSelection,
+    title: input.title || template.defaultTitle || null,
+    customInstructions: input.customInstructions || null,
   });
 }
 
@@ -40,124 +45,69 @@ export async function listThreadsByNote(noteId: string) {
 }
 
 export async function getThread(threadId: string) {
+  await ensurePinnaForThread(threadId);
+
   return db.chatThread.findUnique({
     where: { id: threadId },
-    include: { messages: true, pinnaTemplate: true },
+    include: { pinnaTemplate: true, pinna: true },
   });
 }
 
-export async function sendMessage(threadId: string, userMessage: string) {
-  const thread = await db.chatThread.findUnique({
-    where: { id: threadId },
-    include: {
-      pinnaTemplate: true,
-      note: { include: { source: true, capture: true } },
-      messages: { orderBy: { createdAt: "desc" }, take: 12 },
-    },
-  });
+export async function getThreadMessagesPage(input: {
+  threadId: string;
+  limit?: number;
+  beforeCreatedAt?: string | null;
+  beforeMessageId?: string | null;
+}) {
+  await ensurePinnaForThread(input.threadId);
 
-  if (!thread) throw new Error("Thread not found.");
-  if (!thread.pinnaTemplate) throw new Error("Thread has no pinna template.");
+  const limit = Math.min(Math.max(input.limit ?? DEFAULT_THREAD_PAGE_SIZE, 1), 100);
+  const beforeDate =
+    input.beforeCreatedAt && !Number.isNaN(new Date(input.beforeCreatedAt).getTime())
+      ? new Date(input.beforeCreatedAt)
+      : null;
+  const beforeMessageId = input.beforeMessageId?.trim() || null;
+  const where: Prisma.ChatMessageWhereInput = {
+    threadId: input.threadId,
+  };
 
-  const allowedTools = await getAllowedToolsForAgent("pinna", thread.pinnaTemplate.key);
-
-  const savedUser = await db.chatMessage.create({
-    data: { threadId, role: "user", content: userMessage },
-  });
-
-  let toolResult: { toolKey: string; output?: unknown; error?: string } | null = null;
-  const directive = parseToolDirective(
-    userMessage,
-    allowedTools.map((tool) => tool.key),
-  );
-
-  if (directive) {
-    const toolCall = await db.toolCall.create({
-      data: {
-        threadId,
-        messageId: savedUser.id,
-        toolKey: directive.toolKey,
-        input: directive.input as Prisma.InputJsonValue,
-        status: "pending",
-      },
-    });
-
-    try {
-      await validateToolAllowed({
-        agentType: "pinna",
-        agentKey: thread.pinnaTemplate.key,
-        toolKey: directive.toolKey,
-        requiredScope: "note",
-      });
-
-      const execution = await executeTool({
-        toolKey: directive.toolKey,
-        input: directive.input,
-        context: {
-          threadId: thread.id,
-          noteId: thread.noteId,
-          noteText: thread.note.noteText,
-          sourceText: thread.note.source?.fullText || thread.note.capture?.selectedText || undefined,
-        },
-      });
-
-      if (!execution.ok) {
-        toolResult = { toolKey: directive.toolKey, error: execution.error };
-        await db.toolCall.update({
-          where: { id: toolCall.id },
-          data: {
-            status: "failed",
-            error: execution.error,
-            completedAt: new Date(),
-          },
-        });
-      } else {
-        toolResult = { toolKey: directive.toolKey, output: execution.output };
-        await db.toolCall.update({
-          where: { id: toolCall.id },
-          data: {
-            status: "completed",
-            output: execution.output as Prisma.InputJsonValue,
-            completedAt: new Date(),
-          },
-        });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Tool call denied.";
-      toolResult = { toolKey: directive.toolKey, error: message };
-      await db.toolCall.update({
-        where: { id: toolCall.id },
-        data: {
-          status: "denied",
-          error: message,
-          completedAt: new Date(),
-        },
-      });
-    }
+  if (beforeDate) {
+    where.OR = [
+      { createdAt: { lt: beforeDate } },
+      ...(beforeMessageId
+        ? [
+            {
+              createdAt: beforeDate,
+              id: { lt: beforeMessageId },
+            } satisfies Prisma.ChatMessageWhereInput,
+          ]
+        : []),
+    ];
   }
 
-  const assistant = await generateAssistantReply({
-    noteText: thread.note.noteText,
-    sourceTitle: thread.note.source?.title,
-    captureText: thread.note.capture?.selectedText,
-    threadSummary: thread.summary,
-    pinnaSystemPrompt: thread.pinnaTemplate.systemPrompt,
-    customInstructions: thread.customInstructions,
-    allowedTools: allowedTools.map((tool) => ({
-      key: tool.key,
-      description: tool.description,
-      schema: tool.schema,
-    })),
-    toolResult,
-    recentMessages: thread.messages.reverse().map((m) => ({ role: m.role, content: m.content })),
-    userMessage,
+  const messages = await db.chatMessage.findMany({
+    where,
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: limit + 1,
   });
 
-  const savedAssistant = await db.chatMessage.create({
-    data: { threadId, role: "assistant", content: assistant },
-  });
+  const hasOlder = messages.length > limit;
+  const page = (hasOlder ? messages.slice(0, limit) : messages).reverse();
+  const oldest = page[0] || null;
 
-  await threadMemoryQueue.add("thread-memory-refresh", { threadId: thread.id });
+  return {
+    messages: page,
+    pageInfo: {
+      hasOlder,
+      oldestMessageId: oldest?.id || null,
+      oldestMessageCreatedAt: oldest?.createdAt.toISOString() || null,
+      limit,
+    },
+  };
+}
 
-  return savedAssistant;
+export async function sendMessage(threadId: string, userMessage: string) {
+  await ensurePinnaForThread(threadId);
+  const result = await runPinnaThreadTurn({ threadId, userMessage });
+  return result.assistantMessage;
 }

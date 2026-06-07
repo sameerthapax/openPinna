@@ -2,8 +2,8 @@ import { createNoteSchema } from "@/app/api/_lib/validation";
 
 export const noteSchema = createNoteSchema;
 
-export type NoteFormValues = typeof noteSchema._type;
+export type NoteFormValues = import("zod").infer<typeof noteSchema>;
 
-export function parseTags(_tags?: string | string[]) {
+export function parseTags() {
   return [];
 }
