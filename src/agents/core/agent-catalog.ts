@@ -33,8 +33,8 @@ export const agentToolCatalog: AgentToolCatalogEntry[] = [
     handlerName: "extractClaims",
     schemaJson: {
       type: "object",
-      properties: { noteText: { type: "string" } },
-      required: ["noteText"],
+      properties: { selectedText: { type: "string" } },
+      required: ["selectedText"],
     },
   },
   {
@@ -59,8 +59,8 @@ export const agentToolCatalog: AgentToolCatalogEntry[] = [
     handlerName: "evaluateEvidenceStrength",
     schemaJson: {
       type: "object",
-      properties: { noteText: { type: "string" }, sourceText: { type: "string" } },
-      required: ["noteText"],
+      properties: { selectedText: { type: "string" }, sourceText: { type: "string" } },
+      required: ["selectedText"],
     },
   },
   {
@@ -72,8 +72,8 @@ export const agentToolCatalog: AgentToolCatalogEntry[] = [
     handlerName: "findAssumptions",
     schemaJson: {
       type: "object",
-      properties: { noteText: { type: "string" } },
-      required: ["noteText"],
+      properties: { selectedText: { type: "string" } },
+      required: ["selectedText"],
     },
   },
   {
@@ -85,8 +85,8 @@ export const agentToolCatalog: AgentToolCatalogEntry[] = [
     handlerName: "generateCounterarguments",
     schemaJson: {
       type: "object",
-      properties: { noteText: { type: "string" } },
-      required: ["noteText"],
+      properties: { selectedText: { type: "string" } },
+      required: ["selectedText"],
     },
   },
   {
@@ -232,8 +232,8 @@ export const agentToolCatalog: AgentToolCatalogEntry[] = [
     handlerName: "generateCounterarguments",
     schemaJson: {
       type: "object",
-      properties: { noteText: { type: "string" } },
-      required: ["noteText"],
+      properties: { selectedText: { type: "string" } },
+      required: ["selectedText"],
     },
   },
   {
@@ -245,8 +245,8 @@ export const agentToolCatalog: AgentToolCatalogEntry[] = [
     handlerName: "extractClaims",
     schemaJson: {
       type: "object",
-      properties: { noteText: { type: "string" } },
-      required: ["noteText"],
+      properties: { selectedText: { type: "string" } },
+      required: ["selectedText"],
     },
   }
 ];

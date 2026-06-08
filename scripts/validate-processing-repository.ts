@@ -56,7 +56,7 @@ async function main() {
       data: {
         projectId: project.id,
         sessionId: session.id,
-        noteText: "Validation note",
+        selectedText: "Validation note",
         userCommentary: "Validation comment",
       },
     });
@@ -268,9 +268,6 @@ async function main() {
       where: { projectId: project.id },
     });
     await db.noteKnowledge.deleteMany({ where: { projectId: project.id } });
-    await db.screenshotCaptureProcessing.deleteMany({
-      where: { sourceId: null, noteId: null },
-    });
     await db.project
       .delete({ where: { id: project.id } })
       .catch(() => undefined);

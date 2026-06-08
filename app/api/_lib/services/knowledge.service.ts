@@ -116,7 +116,7 @@ export async function rebuildSessionSummary(sessionId: string) {
     where: { sessionId },
     include: { chatThreads: true },
   });
-  const parts = notes.flatMap((n) => [n.noteSummary || n.noteText, ...n.chatThreads.map((t) => t.summary || "")]);
+  const parts = notes.flatMap((n) => [n.noteSummary || n.selectedText, ...n.chatThreads.map((t) => t.summary || "")]);
   const summary = await summarizeText(parts, "Session");
   const embedding = await maybeEmbed(summary);
   await updateSessionSummary(sessionId, summary, embedding);
@@ -138,7 +138,7 @@ export async function rebuildNoteSummary(noteId: string) {
   const note = await db.note.findUnique({ where: { id: noteId }, include: { chatThreads: true } });
   if (!note) return null;
   const summary = await summarizeText(
-    [note.noteText, ...note.chatThreads.map((t) => t.summary || "")],
+    [note.selectedText, ...note.chatThreads.map((t) => t.summary || "")],
     "Note",
   );
   const embedding = await maybeEmbed(summary);

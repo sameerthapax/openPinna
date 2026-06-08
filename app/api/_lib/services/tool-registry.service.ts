@@ -11,7 +11,7 @@ type ToolContext = {
   projectId?: string;
   sessionId?: string;
   noteId?: string;
-  noteText?: string;
+  selectedText?: string;
   sourceText?: string;
 };
 
@@ -57,8 +57,8 @@ function textSnippet(value: unknown, max = 600) {
   return value.slice(0, max);
 }
 
-function inferRelevanceToNote(noteText: string, snippet: string) {
-  const note = noteText.trim();
+function inferRelevanceToNote(selectedText: string, snippet: string) {
+  const note = selectedText.trim();
   const excerpt = snippet.trim();
   if (!note) return "Useful as external support if it matches the note claim.";
   if (!excerpt) return "External result found, but the snippet is thin.";
@@ -67,15 +67,15 @@ function inferRelevanceToNote(noteText: string, snippet: string) {
 }
 
 async function extractClaims(input: Record<string, unknown>) {
-  const noteText = textSnippet(input.noteText);
-  const parts = noteText
+  const selectedText = textSnippet(input.selectedText);
+  const parts = selectedText
     .split(/[\n\.\?!]/)
     .map((segment) => segment.trim())
     .filter(Boolean)
     .slice(0, 3);
 
   return {
-    claims: parts.length ? parts : [noteText || "No note text provided."],
+    claims: parts.length ? parts : [selectedText || "No selected text provided."],
     provider: "placeholder",
   };
 }
@@ -91,40 +91,40 @@ async function rewriteClaimPrecisely(input: Record<string, unknown>) {
 }
 
 async function evaluateEvidenceStrength(input: Record<string, unknown>) {
-  const noteText = textSnippet(input.noteText);
+  const selectedText = textSnippet(input.selectedText);
   const sourceText = textSnippet(input.sourceText);
   return {
     evaluation:
       "Evidence review placeholder: verify method transparency, sample quality, effect size, and reproducibility.",
-    noteExcerpt: noteText,
+    noteExcerpt: selectedText,
     sourceExcerpt: sourceText,
     provider: "placeholder",
   };
 }
 
 async function findAssumptions(input: Record<string, unknown>) {
-  const noteText = textSnippet(input.noteText);
+  const selectedText = textSnippet(input.selectedText);
   return {
     assumptions: [
       "The observed result generalizes beyond the original setting.",
       "Measurement quality is sufficient for the stated claim.",
-      noteText
+      selectedText
         ? "The note wording preserves the original source meaning."
-        : "No note text supplied.",
+        : "No selected text supplied.",
     ],
     provider: "placeholder",
   };
 }
 
 async function generateCounterarguments(input: Record<string, unknown>) {
-  const noteText = textSnippet(input.noteText);
+  const selectedText = textSnippet(input.selectedText);
   return {
     counterarguments: [
       "Alternative causal variables might explain the same outcome.",
       "The evidence may be correlational rather than causal.",
-      noteText
-        ? `The note may overstate certainty: ${noteText.slice(0, 140)}`
-        : "Missing note text reduces confidence.",
+      selectedText
+        ? `The note may overstate certainty: ${selectedText.slice(0, 140)}`
+        : "Missing selected text reduces confidence.",
     ],
     provider: "placeholder",
   };
@@ -179,7 +179,7 @@ async function getPinnaBaseKnowledge(_input: Record<string, unknown>, context: T
   };
 }
 
-function collectResponseFindings(response: unknown, noteText: string) {
+function collectResponseFindings(response: unknown, selectedText: string) {
   const findings: WebFinding[] = [];
   const output = (response as WebSearchResponse).output ?? [];
 
@@ -209,7 +209,7 @@ function collectResponseFindings(response: unknown, noteText: string) {
               : "web",
           publishedDate:
             typeof annotation?.published_at === "string" ? annotation.published_at : null,
-          relevanceToNote: inferRelevanceToNote(noteText, snippet),
+          relevanceToNote: inferRelevanceToNote(selectedText, snippet),
         });
       }
     }
@@ -228,7 +228,7 @@ function collectResponseFindings(response: unknown, noteText: string) {
           snippet: fallbackText.slice(0, 320),
           sourceName: "web",
           publishedDate: null,
-          relevanceToNote: inferRelevanceToNote(noteText, fallbackText),
+          relevanceToNote: inferRelevanceToNote(selectedText, fallbackText),
         },
       ]
     : [];
@@ -256,7 +256,7 @@ async function openaiWebSearch(input: Record<string, unknown>, context: ToolCont
 
   return {
     query,
-    findings: collectResponseFindings(response, context.noteText || "").slice(0, maxResults),
+    findings: collectResponseFindings(response, context.selectedText || "").slice(0, maxResults),
   };
 }
 

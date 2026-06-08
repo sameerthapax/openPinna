@@ -25,6 +25,8 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
                 const preferDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
                 const theme = saved === "dark" || saved === "light" ? saved : (preferDark ? "dark" : "light");
                 document.documentElement.classList.toggle("dark", theme === "dark");
+                document.documentElement.dataset.theme = theme;
+                document.documentElement.style.colorScheme = theme;
               } catch {}
             })();`,
           }}

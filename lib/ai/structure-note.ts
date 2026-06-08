@@ -11,7 +11,7 @@ export async function structureResearchNote(
     : "No user commentary captured yet.";
 
   return {
-    structuredSummary: `Placeholder summary for "${note.noteText.slice(0, 80)}". ${selectedTextHint}`,
+    structuredSummary: `Placeholder summary for "${note.selectedText.slice(0, 80)}". ${selectedTextHint}`,
     usefulness:
       "Placeholder usefulness: identify whether this note supports, challenges, or extends the current research question.",
     purpose:

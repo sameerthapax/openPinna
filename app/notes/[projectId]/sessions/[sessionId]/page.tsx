@@ -39,7 +39,7 @@ export default async function SessionPage({ params }: { params: Promise<{ projec
             notes={session.notes.map((note) => ({
               id: note.id,
               title: note.source?.title || "No source title",
-              body: note.noteSummary || note.noteText,
+              body: note.noteSummary || note.selectedText,
               capturedAt: note.createdAt,
             }))}
           />

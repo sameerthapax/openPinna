@@ -158,7 +158,7 @@ export const openAIPinnaAgentRunner: AgentDefinition<
       projectId: string;
       sessionId: string;
       noteId: string;
-      noteText?: string;
+      selectedText?: string;
       sourceText?: string;
     };
   },
@@ -175,7 +175,6 @@ export const openAIPinnaAgentRunner: AgentDefinition<
       memorySummary: input.context.memorySummary,
       projectSummary: input.context.projectSummary,
       sessionSummary: input.context.sessionSummary,
-      noteText: input.context.noteText,
       sourceTitle: input.context.sourceTitle,
       selectedText: input.context.selectedText,
       threadSummary: input.context.threadSummary,

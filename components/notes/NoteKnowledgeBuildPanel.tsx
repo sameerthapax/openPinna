@@ -7,6 +7,13 @@ import {
   ExclamationTriangleIcon,
   ReloadIcon,
 } from "@radix-ui/react-icons";
+import {
+  noteCoreClass,
+  noteMiniCardClass,
+  notePanelClass,
+  notePillClass,
+  noteShellClass,
+} from "@/components/notes/noteTheme";
 
 type NoteKnowledgeRecord = {
   id: string;
@@ -69,18 +76,6 @@ type NoteApiResponse = {
   message?: string;
 };
 
-function shellClasses() {
-  return "rounded-[2rem] bg-[color-mix(in_srgb,var(--foreground)_4%,transparent)] p-1.5 ring-1 ring-[color-mix(in_srgb,var(--foreground)_8%,transparent)]";
-}
-
-function coreClasses() {
-  return "rounded-[calc(2rem-0.375rem)] bg-[var(--surface)] px-5 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.42)] md:px-6 md:py-6";
-}
-
-function proseCardClasses() {
-  return "rounded-[1.6rem] border border-[color-mix(in_srgb,var(--foreground)_7%,transparent)] bg-[color-mix(in_srgb,var(--pastel-yellow)_20%,var(--surface))] px-5 py-5";
-}
-
 function normalizeKnowledgeRecord(
   value:
     | NoteKnowledgeRecord
@@ -102,10 +97,10 @@ function normalizeKnowledgeRecord(
 export function NoteSelectedTextPanel({ selectedText }: { selectedText: string }) {
   return (
     <aside
-      className={`${shellClasses()} reveal h-[84dvh] min-h-[80dvh] max-h-[90dvh]`}
+      className={`${noteShellClass} reveal h-[84dvh] min-h-[80dvh] max-h-[90dvh]`}
       style={{ ["--index" as string]: 0 }}
     >
-      <div className={`${coreClasses()} flex h-full min-h-0 flex-col`}>
+      <div className={`${noteCoreClass} flex h-full min-h-0 flex-col`}>
         <div className="flex items-start justify-between gap-4 border-b border-[color-mix(in_srgb,var(--foreground)_7%,transparent)] pb-4">
           <div>
             <p className="font-mono-ui text-[10px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
@@ -115,12 +110,12 @@ export function NoteSelectedTextPanel({ selectedText }: { selectedText: string }
               Captured evidence stays visible beside the board and scrolls independently when the excerpt runs long.
             </p>
           </div>
-          <span className="rounded-full bg-[var(--pastel-yellow)] px-3 py-1 font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--pastel-yellow-text)]">
+          <span className={notePillClass}>
             Evidence
           </span>
         </div>
 
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto rounded-[1.6rem] border border-[color-mix(in_srgb,var(--foreground)_7%,transparent)] bg-[color-mix(in_srgb,var(--pastel-yellow)_14%,var(--surface))] px-4 py-4 text-sm leading-7 text-[var(--foreground)] md:px-5">
+        <div className={`${noteMiniCardClass} mt-4 min-h-0 flex-1 overflow-y-auto text-sm leading-7 text-[var(--foreground)] md:px-5`}>
           {selectedText || "No selected text captured yet."}
         </div>
       </div>
@@ -136,8 +131,8 @@ function KnowledgeLoadingCard({
   onRefresh: () => void;
 }) {
   return (
-    <div className={shellClasses()}>
-      <div className={`${coreClasses()} min-h-[380px]`}>
+    <div className={noteShellClass}>
+      <div className={`${noteCoreClass} min-h-[380px]`}>
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_300px]">
           <div className="space-y-6">
             <div className="space-y-3">
@@ -160,10 +155,7 @@ function KnowledgeLoadingCard({
                 "Extracting grounded context from screenshots and audio",
                 "Writing the final knowledge brief back to the note",
               ].map((step, index) => (
-                <div
-                  key={step}
-                  className={`${proseCardClasses()} flex min-h-[138px] flex-col justify-between`}
-                >
+                <div key={step} className={`${notePanelClass} flex min-h-[138px] flex-col justify-between`}>
                   <div className="flex items-start gap-3">
                     <span className="knowledge-pulse mt-1 inline-flex h-2.5 w-2.5 rounded-full bg-[var(--pastel-blue-text)]" />
                     <p className="text-sm leading-6 text-[var(--foreground)]">{step}</p>
@@ -177,7 +169,7 @@ function KnowledgeLoadingCard({
             </div>
           </div>
 
-          <aside className={`${proseCardClasses()} flex flex-col justify-between`}>
+          <aside className={`${notePanelClass} flex flex-col justify-between`}>
             <div>
               <p className="font-mono-ui text-[10px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
                 Build pulse
@@ -218,8 +210,8 @@ function KnowledgeFailedCard({
   onRefresh: () => void;
 }) {
   return (
-    <div className={shellClasses()}>
-      <div className={`${coreClasses()} min-h-[320px]`}>
+    <div className={noteShellClass}>
+      <div className={`${noteCoreClass} min-h-[320px]`}>
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_320px]">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-[var(--pastel-red)] px-3 py-1 font-mono-ui text-[10px] uppercase tracking-[0.18em] text-[var(--pastel-red-text)]">
@@ -235,12 +227,12 @@ function KnowledgeFailedCard({
               </p>
             </div>
 
-            <div className="mt-6 rounded-[1.6rem] border border-[color-mix(in_srgb,var(--pastel-red-text)_16%,transparent)] bg-[color-mix(in_srgb,var(--pastel-red)_24%,var(--surface))] px-4 py-4 text-sm leading-7 text-[var(--foreground)]">
+            <div className={`${noteMiniCardClass} mt-6 rounded-[1.6rem] px-4 py-4 text-sm leading-7 text-[var(--foreground)]`}>
               {processingStatus.lastError || "No detailed error message was recorded."}
             </div>
           </div>
 
-          <aside className={proseCardClasses()}>
+          <aside className={notePanelClass}>
             <p className="font-mono-ui text-[10px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
               Run details
             </p>
@@ -274,8 +266,8 @@ function KnowledgeReadyCard({ knowledge }: { knowledge: NoteKnowledgeRecord }) {
   const summary = knowledge.summary || "No synthesis summary has been generated yet.";
 
   return (
-    <div className={shellClasses()}>
-      <div className={`${coreClasses()} min-h-[420px]`}>
+    <div className={noteShellClass}>
+      <div className={`${noteCoreClass} min-h-[420px]`}>
         <div className="space-y-6">
           <div className="space-y-3">
             <span className="inline-flex items-center gap-2 rounded-full bg-[var(--pastel-green)] px-3 py-1 font-mono-ui text-[10px] uppercase tracking-[0.18em] text-[var(--pastel-green-text)]">
@@ -292,7 +284,7 @@ function KnowledgeReadyCard({ knowledge }: { knowledge: NoteKnowledgeRecord }) {
             </div>
           </div>
 
-          <section className={`${proseCardClasses()} reveal`} style={{ ["--index" as string]: 0 }}>
+          <section className={`${notePanelClass} reveal`} style={{ ["--index" as string]: 0 }}>
             <p className="font-mono-ui text-[10px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
               Lead summary
             </p>
@@ -302,7 +294,7 @@ function KnowledgeReadyCard({ knowledge }: { knowledge: NoteKnowledgeRecord }) {
           </section>
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-            <section className={`${proseCardClasses()} reveal`} style={{ ["--index" as string]: 1 }}>
+            <section className={`${notePanelClass} reveal`} style={{ ["--index" as string]: 1 }}>
               <p className="font-mono-ui text-[10px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
                 Key findings
               </p>
@@ -312,7 +304,7 @@ function KnowledgeReadyCard({ knowledge }: { knowledge: NoteKnowledgeRecord }) {
             </section>
 
             <div className="grid gap-4">
-              <section className={`${proseCardClasses()} reveal`} style={{ ["--index" as string]: 2 }}>
+              <section className={`${notePanelClass} reveal`} style={{ ["--index" as string]: 2 }}>
                 <p className="font-mono-ui text-[10px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
                   User view
                 </p>
@@ -321,7 +313,7 @@ function KnowledgeReadyCard({ knowledge }: { knowledge: NoteKnowledgeRecord }) {
                 </div>
               </section>
 
-              <section className={`${proseCardClasses()} reveal`} style={{ ["--index" as string]: 3 }}>
+              <section className={`${notePanelClass} reveal`} style={{ ["--index" as string]: 3 }}>
                 <p className="font-mono-ui text-[10px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
                   Conclusion
                 </p>

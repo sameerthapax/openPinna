@@ -92,7 +92,6 @@ async function main() {
 
   const instructions = buildSkillRuntimeInstructions(claim, {
     scope: "NOTE",
-    noteText: "A precise note.",
     selectedText: "Selected sentence.",
     threadSummary: "Short summary.",
     allowedToolsSummary: "Allowed tools: extract_claims",

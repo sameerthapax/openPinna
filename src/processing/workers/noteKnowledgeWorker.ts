@@ -4,12 +4,15 @@ import { db } from "@/lib/db";
 import { createNoteBaseKnowledgeVersion } from "@/app/api/_lib/services/pinna-instance.service";
 import { runLocalScreenshotOcrTasks } from "@/src/processing/localScreenshotOcr";
 import {
+  buildGroundedSourceSummary,
   buildNoteKnowledge,
-  extractSourceMetadataAndSummary,
-  finalizeScreenshotInformation,
+  extractClickyScreenshotDetailsFromImages,
+  extractStructuredSourceFieldsFromText,
   getProcessingModel,
 } from "@/src/processing/openaiProcessingClient";
 import {
+  ClickyScreenshotExtraction,
+  DeferredProcessingError,
   ProcessingJobPayload,
   ProcessingJobRecord,
   processingJobPayloadSchema,
@@ -19,6 +22,18 @@ import {
 // This worker is a resumable four-step state machine stored in the note job payload so
 // retries can continue chunk OCR/finalization work without spawning child processing jobs.
 const maxScreenshotProcessingChunks = 40;
+const clickyPlaceholder = "N/A";
+const clickyRetryDelayMs = 5 * 60 * 1000;
+const placeholderTitles = new Set([
+  "research capture",
+  "research screenshot",
+  "unknown",
+  "none",
+]);
+
+function isPlaceholderValue(value: string | null | undefined) {
+  return value?.trim() === clickyPlaceholder;
+}
 
 function asJsonValue(value: unknown) {
   return value as Prisma.InputJsonValue;
@@ -45,6 +60,28 @@ function resolveStoredPath(filePath: string | null | undefined) {
     : path.resolve(process.cwd(), filePath);
 }
 
+function cleanText(value: string | null | undefined) {
+  return value?.trim() || null;
+}
+
+function cleanMeaningfulText(value: string | null | undefined) {
+  const trimmed = cleanText(value);
+  if (!trimmed || isPlaceholderValue(trimmed)) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+function cleanMeaningfulTitle(value: string | null | undefined) {
+  const trimmed = cleanText(value);
+  if (!trimmed || isPlaceholderValue(trimmed)) {
+    return null;
+  }
+
+  return placeholderTitles.has(trimmed.toLowerCase()) ? null : trimmed;
+}
+
 function isSupportedImage(filePath: string | null) {
   if (!filePath) {
     return false;
@@ -52,6 +89,196 @@ function isSupportedImage(filePath: string | null) {
 
   const extension = path.extname(filePath).toLowerCase();
   return [".png", ".jpg", ".jpeg", ".webp"].includes(extension);
+}
+
+function isDirectScreenshotCapture(note: LoadedNote) {
+  return note.capture?.artifactType === "screenshot";
+}
+
+function deriveCaptureOrigin(note: LoadedNote, payload: ProcessingJobPayload) {
+  if (payload.captureOrigin?.trim()) {
+    return payload.captureOrigin.trim();
+  }
+
+  const captureOrigin = note.capture?.sourceLabel?.trim();
+  if (captureOrigin) {
+    return captureOrigin;
+  }
+
+  const sourceMetadata =
+    note.source?.metadata &&
+    typeof note.source.metadata === "object" &&
+    !Array.isArray(note.source.metadata)
+      ? (note.source.metadata as Record<string, unknown>)
+      : null;
+  const researchIngest =
+    sourceMetadata?.researchIngest &&
+    typeof sourceMetadata.researchIngest === "object" &&
+    !Array.isArray(sourceMetadata.researchIngest)
+      ? (sourceMetadata.researchIngest as Record<string, unknown>)
+      : null;
+
+  return typeof researchIngest?.captureOrigin === "string"
+    ? researchIngest.captureOrigin
+    : null;
+}
+
+function directScreenshotPath(note: LoadedNote) {
+  if (!isDirectScreenshotCapture(note)) {
+    return null;
+  }
+
+  return resolveStoredPath(
+    note.capture?.storagePath || note.capture?.imagePath || null,
+  );
+}
+
+function selectedScreenshotImagePaths(
+  context: ReturnType<typeof buildRuntimeContext>,
+) {
+  if (context.directCaptureImagePath) {
+    return [context.directCaptureImagePath].filter(Boolean);
+  }
+
+  return context.selectedScreenshotChunks
+    .map((chunk) => resolveStoredPath(chunk.filePath))
+    .filter((value): value is string => Boolean(value && isSupportedImage(value)));
+}
+
+async function applyClickyExtractionToRecords(input: {
+  note: LoadedNote;
+  selectedText?: string | null;
+  title?: string | null;
+  url?: string | null;
+  authors?: string[];
+  abstract?: string | null;
+  publicationDate?: string | null;
+}) {
+  if (
+    input.note.captureId &&
+    !cleanText(input.note.capture?.selectedText) &&
+    cleanMeaningfulText(input.selectedText)
+  ) {
+    await db.capture.update({
+      where: { id: input.note.captureId },
+      data: {
+        selectedText: cleanMeaningfulText(input.selectedText),
+      },
+    });
+  }
+
+  if (
+    (!cleanMeaningfulText(input.note.selectedText) ||
+      input.note.selectedText.trim() === "N/A") &&
+    cleanMeaningfulText(input.selectedText)
+  ) {
+    await db.note.update({
+      where: { id: input.note.id },
+      data: {
+        selectedText: cleanMeaningfulText(input.selectedText) || "N/A",
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  if (!input.note.sourceId) {
+    return;
+  }
+
+  const nextAuthors =
+    coerceAuthors(input.note.source?.authors).length > 0
+      ? undefined
+      : input.authors && input.authors.length > 0
+        ? asJsonValue(input.authors)
+        : undefined;
+
+  await db.source.update({
+    where: { id: input.note.sourceId },
+    data: {
+      title:
+        cleanMeaningfulTitle(input.title) ||
+        cleanMeaningfulTitle(input.note.source?.title) ||
+        undefined,
+      url:
+        cleanText(input.note.source?.url) ||
+        cleanMeaningfulText(input.url) ||
+        undefined,
+      authors: nextAuthors,
+      abstract:
+        cleanText(input.note.source?.abstract) ||
+        cleanMeaningfulText(input.abstract) ||
+        undefined,
+      publicationDate:
+        input.note.source?.publicationDate ||
+        !cleanMeaningfulText(input.publicationDate)
+          ? undefined
+          : new Date(cleanMeaningfulText(input.publicationDate)!),
+    },
+  });
+}
+
+function normalizeClickyStringField(
+  value: string | null | undefined,
+  fallback = clickyPlaceholder,
+) {
+  const trimmed = value?.trim() || "";
+  return trimmed.length > 0 ? trimmed : fallback;
+}
+
+function normalizeClickyNullableField(value: string | null | undefined) {
+  const trimmed = value?.trim() || "";
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeClickyAuthors(authors: string[] | null | undefined) {
+  return Array.isArray(authors)
+    ? authors
+        .map((author) => author.trim())
+        .filter((author) => author.length > 0 && !isPlaceholderValue(author))
+    : [];
+}
+
+function normalizeClickyExtraction(
+  extraction: ClickyScreenshotExtraction,
+): ClickyScreenshotExtraction {
+  return {
+    extractedText: normalizeClickyStringField(extraction.extractedText),
+    selectedText: normalizeClickyStringField(extraction.selectedText),
+    title: normalizeClickyStringField(extraction.title),
+    url: normalizeClickyNullableField(extraction.url),
+    authors: normalizeClickyAuthors(extraction.authors),
+    abstract: normalizeClickyStringField(extraction.abstract),
+    publicationDate: normalizeClickyNullableField(extraction.publicationDate),
+    model: extraction.model.trim() || getProcessingModel(),
+  };
+}
+
+function emptyClickyExtractionFallback(): ClickyScreenshotExtraction {
+  return normalizeClickyExtraction({
+    extractedText: "",
+    selectedText: null,
+    title: null,
+    url: null,
+    authors: [],
+    abstract: null,
+    publicationDate: null,
+    model: getProcessingModel(),
+  });
+}
+
+function clickyExtractionNeedsRetry(extraction: ClickyScreenshotExtraction) {
+  return (
+    isPlaceholderValue(extraction.title) &&
+    !cleanMeaningfulText(extraction.url) &&
+    extraction.authors.length === 0 &&
+    !cleanMeaningfulText(extraction.abstract) &&
+    !cleanMeaningfulText(extraction.selectedText) &&
+    !cleanMeaningfulText(extraction.extractedText)
+  );
+}
+
+function nextClickyRetryTime() {
+  return new Date(Date.now() + clickyRetryDelayMs);
 }
 
 async function updateJobPayload(jobId: string, payload: ProcessingJobPayload) {
@@ -108,12 +335,14 @@ function buildRuntimeContext(note: LoadedNote, payload: ProcessingJobPayload) {
   const transcriptText =
     note.voiceAudio?.finalTranscript ||
     note.voiceSession?.audio?.finalTranscript ||
+    note.userCommentary ||
+    payload.userComment ||
     null;
   const selectedText =
     note.capture?.selectedText ||
     note.voiceSession?.selectedText ||
     payload.selectedText ||
-    note.noteText;
+    null;
   const userCommentary = note.userCommentary || payload.userComment || null;
   const sourceUrl =
     note.source?.url ||
@@ -122,12 +351,14 @@ function buildRuntimeContext(note: LoadedNote, payload: ProcessingJobPayload) {
     payload.sourceUrl ||
     null;
   const sourceTitle =
-    note.source?.title ||
-    note.voiceSession?.pageTitle ||
-    note.capture?.title ||
-    payload.pageTitle ||
+    cleanMeaningfulTitle(note.source?.title) ||
+    cleanMeaningfulTitle(note.voiceSession?.pageTitle) ||
+    cleanMeaningfulTitle(note.capture?.title) ||
+    cleanMeaningfulTitle(payload.pageTitle) ||
     null;
   const screenshotSession = note.voiceSession?.screenshotSession || null;
+  const captureOrigin = deriveCaptureOrigin(note, payload);
+  const directCaptureImagePath = directScreenshotPath(note);
   const orderedScreenshotChunks = (screenshotSession?.chunks || [])
     .slice()
     .sort((left, right) => left.chunkIndex - right.chunkIndex);
@@ -146,6 +377,11 @@ function buildRuntimeContext(note: LoadedNote, payload: ProcessingJobPayload) {
     userCommentary,
     sourceUrl,
     sourceTitle,
+    captureOrigin,
+    directCaptureImagePath,
+    directScreenshotText: payload.directScreenshotText || null,
+    directScreenshotOcrModel: payload.directScreenshotOcrModel || null,
+    directScreenshotSummary: payload.directScreenshotSummary || null,
     screenshotSession,
     orderedScreenshotChunks,
     selectedScreenshotChunks,
@@ -179,14 +415,20 @@ function buildPayloadForContext(input: {
     pageTitle: input.context.sourceTitle,
     selectedText: input.context.selectedText,
     userComment: input.context.userCommentary,
+    captureOrigin: input.context.captureOrigin,
     hasAudio: Boolean(input.context.note.voiceAudioId),
-    hasScreenshots: Boolean(input.context.screenshotSession),
+    hasScreenshots: Boolean(
+      input.context.screenshotSession || input.context.directCaptureImagePath,
+    ),
     screenshotId: input.context.screenshotSession?.id || null,
     audioId: input.context.note.voiceAudioId,
     captureIds: [
       input.context.note.captureId,
       input.context.screenshotSession?.captureId,
     ].filter((value): value is string => Boolean(value)),
+    directScreenshotText: input.context.directScreenshotText,
+    directScreenshotOcrModel: input.context.directScreenshotOcrModel,
+    directScreenshotSummary: input.context.directScreenshotSummary,
     currentStep: input.currentStep,
     selectedScreenshotChunkIds: input.context.selectedScreenshotChunks.map(
       (chunk) => chunk.id,
@@ -258,6 +500,73 @@ async function runScreenshotOcrStep(
   payload: ProcessingJobPayload,
   context: ReturnType<typeof buildRuntimeContext>,
 ) {
+  if (context.captureOrigin === "clicky") {
+    const nextPayload = buildPayloadForContext({
+      payload,
+      context,
+      currentStep: "screenshot_finalize_info",
+      lastProcessedChunkIndex: payload.lastProcessedChunkIndex ?? null,
+    });
+
+    await updateJobPayload(job.id, nextPayload);
+    return nextPayload;
+  }
+
+  if (!context.screenshotSession && !context.directCaptureImagePath) {
+    const nextPayload = buildPayloadForContext({
+      payload,
+      context,
+      currentStep: "screenshot_finalize_info",
+      lastProcessedChunkIndex: payload.lastProcessedChunkIndex ?? null,
+    });
+
+    await updateJobPayload(job.id, nextPayload);
+    return nextPayload;
+  }
+
+  if (context.directCaptureImagePath && !context.screenshotSession) {
+    if (payload.directScreenshotText) {
+      const nextPayload = buildPayloadForContext({
+        payload,
+        context,
+        currentStep: "screenshot_finalize_info",
+        lastProcessedChunkIndex: payload.lastProcessedChunkIndex ?? 0,
+      });
+
+      await updateJobPayload(job.id, nextPayload);
+      return nextPayload;
+    }
+
+    const [result] = await runLocalScreenshotOcrTasks([
+      {
+        chunkId: context.note.captureId || context.note.id,
+        imagePath: context.directCaptureImagePath,
+      },
+    ]);
+
+    if (!result || result.status !== "fulfilled") {
+      throw new Error(result?.error || "Screenshot OCR failed.");
+    }
+
+    const nextPayload = processingJobPayloadSchema.parse({
+      ...buildPayloadForContext({
+        payload,
+        context: {
+          ...context,
+          directScreenshotText: result.extractedText,
+          directScreenshotOcrModel: result.model,
+        },
+        currentStep: "screenshot_finalize_info",
+        lastProcessedChunkIndex: 0,
+      }),
+      directScreenshotText: result.extractedText,
+      directScreenshotOcrModel: result.model,
+    });
+
+    await updateJobPayload(job.id, nextPayload);
+    return nextPayload;
+  }
+
   if (
     !context.screenshotSession ||
     context.selectedScreenshotChunks.length === 0
@@ -346,7 +655,6 @@ async function runScreenshotOcrStep(
     }
 
     if (settledResult.status === "fulfilled") {
-
       await db.voiceScreenshotChunk.update({
         where: { id: chunk.id },
         data: {
@@ -403,137 +711,193 @@ async function runScreenshotFinalizationStep(
   payload: ProcessingJobPayload,
   context: ReturnType<typeof buildRuntimeContext>,
 ) {
-  if (!context.screenshotSession) {
-    const nextPayload = buildPayloadForContext({
-      payload,
-      context,
-      currentStep: "knowledge_upsert",
-      lastProcessedChunkIndex: payload.lastProcessedChunkIndex ?? null,
+  if (context.captureOrigin === "clicky") {
+    const imagePaths = selectedScreenshotImagePaths(context);
+    let extraction = emptyClickyExtractionFallback();
+
+    if (imagePaths.length > 0) {
+      try {
+        extraction = normalizeClickyExtraction(
+          await extractClickyScreenshotDetailsFromImages({
+            pageTitle: context.sourceTitle,
+            pageUrl: context.sourceUrl,
+            selectedText: context.selectedText,
+            imagePaths,
+          }),
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Screenshot metadata extraction failed.";
+
+        if (job.attempts < job.maxAttempts) {
+          throw new DeferredProcessingError(
+            `CLICKY_EXTRACTION_RETRY:${message}`,
+            nextClickyRetryTime(),
+            true,
+          );
+        }
+
+        console.warn(
+          `${processingLogPrefix} screenshot metadata extraction exhausted retries`,
+          {
+            jobId: job.id,
+            noteId: context.note.id,
+            attempts: job.attempts,
+            maxAttempts: job.maxAttempts,
+            message,
+          },
+        );
+      }
+    }
+
+    if (
+      clickyExtractionNeedsRetry(extraction) &&
+      job.attempts < job.maxAttempts
+    ) {
+      throw new DeferredProcessingError(
+        "CLICKY_EXTRACTION_RETRY:missing_core_fields",
+        nextClickyRetryTime(),
+        true,
+      );
+    }
+
+    await applyClickyExtractionToRecords({
+      note: context.note,
+      selectedText: extraction.selectedText,
+      title: extraction.title,
+      url: extraction.url,
+      authors: extraction.authors,
+      abstract: extraction.abstract,
+      publicationDate: extraction.publicationDate,
+    });
+
+    const missingStructuredFields = [
+      cleanMeaningfulTitle(extraction.title) ? null : "title",
+      cleanMeaningfulText(extraction.url) ? null : "url",
+      extraction.authors.length > 0 ? null : "authors",
+      cleanMeaningfulText(extraction.abstract) ? null : "abstract",
+      cleanMeaningfulText(extraction.selectedText) ? null : "selectedText",
+      cleanMeaningfulText(extraction.publicationDate) ? null : "publicationDate",
+    ].filter((value): value is string => Boolean(value));
+
+    console.info(
+      `${processingLogPrefix} structured source field extraction completed`,
+      {
+        jobId: job.id,
+        noteId: context.note.id,
+        captureOrigin: context.captureOrigin,
+        usedOcrText: false,
+        usedImages: imagePaths.length > 0,
+        missingStructuredFields,
+      },
+    );
+
+    const nextPayload = processingJobPayloadSchema.parse({
+      ...buildPayloadForContext({
+        payload,
+        context: {
+          ...context,
+          directScreenshotText:
+            !context.screenshotSession &&
+            cleanMeaningfulText(extraction.extractedText)
+              ? cleanMeaningfulText(extraction.extractedText)
+              : context.directScreenshotText,
+          directScreenshotOcrModel:
+            !context.screenshotSession && extraction.model
+              ? extraction.model
+              : context.directScreenshotOcrModel,
+          directScreenshotSummary: null,
+        },
+        currentStep: "knowledge_upsert",
+        lastProcessedChunkIndex: payload.lastProcessedChunkIndex ?? 0,
+      }),
+      directScreenshotText:
+        !context.screenshotSession && cleanMeaningfulText(extraction.extractedText)
+          ? cleanMeaningfulText(extraction.extractedText)
+          : context.directScreenshotText,
+      directScreenshotOcrModel:
+        !context.screenshotSession && extraction.model
+          ? extraction.model
+          : context.directScreenshotOcrModel,
+      directScreenshotSummary: null,
     });
 
     await updateJobPayload(job.id, nextPayload);
     return nextPayload;
   }
 
-  if (
-    context.screenshotSession.finalizationStatus === "completed" &&
-    (context.screenshotSession.finalizedSummary ||
-      context.screenshotSession.importantContext)
-  ) {
-    const nextPayload = buildPayloadForContext({
-      payload,
-      context,
-      currentStep: "knowledge_upsert",
-      lastProcessedChunkIndex: payload.lastProcessedChunkIndex ?? null,
-    });
-    await updateJobPayload(job.id, nextPayload);
-    return nextPayload;
-  }
-
-  const selectedChunkIds = new Set(
-    context.selectedScreenshotChunks.map((chunk) => chunk.id),
+  const mergedRawText = cleanText(
+    context.screenshotSession
+      ? context.screenshotSession.chunks
+          .filter((chunk) => chunk.ocrStatus === "completed")
+          .map((chunk) => chunk.extractedText || "")
+          .join("\n\n")
+      : context.directScreenshotText,
   );
-  const successfulChunks = context.screenshotSession.chunks
-    .filter(
-      (chunk) =>
-        selectedChunkIds.has(chunk.id) &&
-        chunk.ocrStatus === "completed" &&
-        chunk.extractedText,
-    )
-    .sort((left, right) => left.chunkIndex - right.chunkIndex);
 
-  if (successfulChunks.length === 0) {
-    await db.voiceScreenshotSession.update({
-      where: { id: context.screenshotSession.id },
-      data: {
-        finalizedSummary: null,
-        importantContext: null,
-        finalizationModel: null,
-        finalizationStatus: "skipped",
-        finalizationError:
-          "No successful OCR chunk text was available for finalization.",
-        finalizationStartedAt: new Date(),
-        finalizedAt: new Date(),
-        updatedAt: new Date(),
-      },
-    });
-
+  if (!mergedRawText) {
     const nextPayload = buildPayloadForContext({
       payload,
       context,
       currentStep: "knowledge_upsert",
       lastProcessedChunkIndex: payload.lastProcessedChunkIndex ?? null,
     });
+
     await updateJobPayload(job.id, nextPayload);
     return nextPayload;
   }
 
-  await db.voiceScreenshotSession.update({
-    where: { id: context.screenshotSession.id },
-    data: {
-      finalizationStatus: "processing",
-      finalizationError: null,
-      finalizationStartedAt: new Date(),
-      updatedAt: new Date(),
-    },
+  const structured = await extractStructuredSourceFieldsFromText({
+    pageTitle: context.sourceTitle,
+    pageUrl: context.sourceUrl,
+    selectedText: context.selectedText,
+    extractedText: mergedRawText,
   });
 
-  try {
-    const finalized = await finalizeScreenshotInformation({
-      pageTitle: context.screenshotSession.pageTitle || context.sourceTitle,
-      pageUrl: context.screenshotSession.pageUrl || context.sourceUrl,
-      selectedText: context.selectedText,
-      mergedRawText: successfulChunks
-        .map((chunk) => (chunk.extractedText || "").trim())
-        .filter(Boolean)
-        .join("\n\n"),
-    });
-
-    await db.voiceScreenshotSession.update({
-      where: { id: context.screenshotSession.id },
-      data: {
-        finalizedSummary: finalized.finalizedSummary,
-        importantContext: finalized.importantContext,
-        finalizationModel: finalized.model,
-        finalizationStatus: "completed",
-        finalizationError: null,
-        finalizedAt: new Date(),
-        updatedAt: new Date(),
-      },
-    });
-
-    console.info(`${processingLogPrefix} screenshot finalization completed`, {
-      jobId: job.id,
-      noteId: context.note.id,
-      screenshotSessionId: context.screenshotSession.id,
-      successfulChunkCount: successfulChunks.length,
-    });
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Screenshot finalization failed.";
-
-    await db.voiceScreenshotSession.update({
-      where: { id: context.screenshotSession.id },
-      data: {
-        finalizationStatus: "failed",
-        finalizationError: message,
-        updatedAt: new Date(),
-      },
-    });
-
-    throw error;
-  }
-
-  const nextPayload = buildPayloadForContext({
-    payload,
-    context,
-    currentStep: "knowledge_upsert",
-    lastProcessedChunkIndex: payload.lastProcessedChunkIndex ?? null,
+  await applyClickyExtractionToRecords({
+    note: context.note,
+    selectedText: structured.selectedText,
+    title: structured.title,
+    url: structured.url,
+    authors: structured.authors,
+    abstract: structured.abstract,
+    publicationDate: structured.publicationDate,
   });
+
+  const missingStructuredFields = [
+    cleanMeaningfulTitle(structured.title) ? null : "title",
+    cleanMeaningfulText(structured.url) ? null : "url",
+    structured.authors.length > 0 ? null : "authors",
+    cleanMeaningfulText(structured.abstract) ? null : "abstract",
+    cleanMeaningfulText(structured.selectedText) ? null : "selectedText",
+    cleanMeaningfulText(structured.publicationDate) ? null : "publicationDate",
+  ].filter((value): value is string => Boolean(value));
+
+  console.info(`${processingLogPrefix} structured source field extraction completed`, {
+    jobId: job.id,
+    noteId: context.note.id,
+    captureOrigin: context.captureOrigin,
+    usedOcrText: true,
+    usedImages: false,
+    missingStructuredFields,
+  });
+
+  const nextPayload = processingJobPayloadSchema.parse({
+    ...buildPayloadForContext({
+      payload,
+      context: {
+        ...context,
+        directScreenshotSummary: null,
+      },
+      currentStep: "knowledge_upsert",
+      lastProcessedChunkIndex: payload.lastProcessedChunkIndex ?? 0,
+    }),
+    directScreenshotSummary: null,
+  });
+
   await updateJobPayload(job.id, nextPayload);
-
   return nextPayload;
 }
 
@@ -608,13 +972,14 @@ export async function processNoteKnowledgeJob(job: ProcessingJobRecord) {
   }
 
   context = buildRuntimeContext(finalNote, payload);
-
-  const screenshotImportantText = [
-    context.screenshotSession?.finalizedSummary || null,
-    context.screenshotSession?.importantContext || null,
-  ]
-    .filter((value): value is string => Boolean(value && value.trim()))
-    .join("\n\n");
+  const screenshotImportantText = cleanText(
+    context.screenshotSession
+      ? context.screenshotSession.chunks
+          .filter((chunk) => chunk.ocrStatus === "completed")
+          .map((chunk) => chunk.extractedText || "")
+          .join("\n\n")
+      : context.directScreenshotText,
+  );
   const existingAuthors = coerceAuthors(finalNote.source?.authors);
   const existingPublicationDate =
     finalNote.source?.publicationDate?.toISOString().slice(0, 10) || null;
@@ -624,45 +989,40 @@ export async function processNoteKnowledgeJob(job: ProcessingJobRecord) {
     {
       jobId: job.id,
       noteId: finalNote.id,
+      captureOrigin: context.captureOrigin,
       sourceUrl: context.sourceUrl,
       sourceTitle: context.sourceTitle,
       selectedTextLength: context.selectedText?.length ?? 0,
       userCommentLength: context.userCommentary?.length ?? 0,
       transcriptLength: context.transcriptText?.length ?? 0,
-      screenshotImportantLength: screenshotImportantText.length,
+      screenshotImportantLength: screenshotImportantText?.length ?? 0,
       existingAuthorsCount: existingAuthors.length,
     },
   );
 
-  const metadataSummary = await extractSourceMetadataAndSummary({
-    noteText: finalNote.noteText,
-    selectedText: context.selectedText,
+  const sourceSummary = await buildGroundedSourceSummary({
+    selectedText: finalNote.selectedText,
     userComment: context.userCommentary,
-    screenshotImportantText,
     transcriptText: context.transcriptText,
     sourceTitle: context.sourceTitle,
     sourceUrl: context.sourceUrl,
-    existingAuthors,
-    existingAbstract: finalNote.source?.abstract || null,
-    existingPublicationDate,
+    authors: existingAuthors,
+    abstract: finalNote.source?.abstract || null,
+    publicationDate: existingPublicationDate,
+    extractedText: screenshotImportantText,
   });
 
   const knowledge = await buildNoteKnowledge({
-    noteText: finalNote.noteText,
-    selectedText: context.selectedText,
+    selectedText: finalNote.selectedText,
     userComment: context.userCommentary,
     screenshotImportantText,
     transcriptText: context.transcriptText,
-    sourceSummary: metadataSummary.summary,
-    sourceTitle: metadataSummary.title || context.sourceTitle,
+    sourceSummary: sourceSummary.summary,
+    sourceTitle: context.sourceTitle,
     sourceUrl: context.sourceUrl,
-    sourceAbstract:
-      metadataSummary.abstract || finalNote.source?.abstract || null,
-    authors:
-      metadataSummary.authors.length > 0
-        ? metadataSummary.authors
-        : existingAuthors,
-    publicationDate: metadataSummary.publicationDate || existingPublicationDate,
+    sourceAbstract: finalNote.source?.abstract || null,
+    authors: existingAuthors,
+    publicationDate: existingPublicationDate,
   });
 
   const sourceSnapshot = asJsonValue({
@@ -670,14 +1030,8 @@ export async function processNoteKnowledgeJob(job: ProcessingJobRecord) {
     sourceTitle: context.sourceTitle,
     selectedText: context.selectedText,
     transcriptText: context.transcriptText,
-    screenshotInfo: context.screenshotSession
-      ? {
-          finalizedSummary: context.screenshotSession.finalizedSummary,
-          importantContext: context.screenshotSession.importantContext,
-          finalizationStatus: context.screenshotSession.finalizationStatus,
-          finalizationError: context.screenshotSession.finalizationError,
-        }
-      : null,
+    extractedText: screenshotImportantText,
+    sourceSummary: sourceSummary.summary,
     existingSourceMetadata: finalNote.source
       ? {
           title: finalNote.source.title,
@@ -694,18 +1048,15 @@ export async function processNoteKnowledgeJob(job: ProcessingJobRecord) {
     sourceId: finalNote.sourceId,
     projectId: finalNote.projectId,
     sessionId: finalNote.sessionId,
-    title: metadataSummary.title || context.sourceTitle,
-    authors:
-      metadataSummary.authors.length > 0
-        ? metadataSummary.authors
-        : existingAuthors,
-    publicationDate: metadataSummary.publicationDate || existingPublicationDate,
-    abstract: metadataSummary.abstract || finalNote.source?.abstract || null,
-    summary: metadataSummary.summary,
+    title: context.sourceTitle,
+    authors: existingAuthors,
+    publicationDate: existingPublicationDate,
+    abstract: finalNote.source?.abstract || null,
+    summary: sourceSummary.summary,
     keyFindings: knowledge.keyFindings,
     userView: knowledge.userView,
     conclusion: knowledge.conclusion,
-    model: knowledge.model || metadataSummary.model || getProcessingModel(),
+    model: knowledge.model || sourceSummary.model || getProcessingModel(),
     sourceSnapshot,
   });
 
@@ -715,20 +1066,15 @@ export async function processNoteKnowledgeJob(job: ProcessingJobRecord) {
       sourceId: finalNote.sourceId,
       projectId: finalNote.projectId,
       sessionId: finalNote.sessionId,
-      title: metadataSummary.title || context.sourceTitle,
-      authors: asJsonValue(
-        metadataSummary.authors.length > 0
-          ? metadataSummary.authors
-          : existingAuthors,
-      ),
-      publicationDate:
-        metadataSummary.publicationDate || existingPublicationDate,
-      abstract: metadataSummary.abstract || finalNote.source?.abstract || null,
-      summary: metadataSummary.summary,
+      title: context.sourceTitle,
+      authors: asJsonValue(existingAuthors),
+      publicationDate: existingPublicationDate,
+      abstract: finalNote.source?.abstract || null,
+      summary: sourceSummary.summary,
       keyFindings: knowledge.keyFindings,
       userView: knowledge.userView,
       conclusion: knowledge.conclusion,
-      model: knowledge.model || metadataSummary.model || getProcessingModel(),
+      model: knowledge.model || sourceSummary.model || getProcessingModel(),
       sourceSnapshot,
       updatedAt: new Date(),
     },
@@ -737,20 +1083,15 @@ export async function processNoteKnowledgeJob(job: ProcessingJobRecord) {
       sourceId: finalNote.sourceId,
       projectId: finalNote.projectId,
       sessionId: finalNote.sessionId,
-      title: metadataSummary.title || context.sourceTitle,
-      authors: asJsonValue(
-        metadataSummary.authors.length > 0
-          ? metadataSummary.authors
-          : existingAuthors,
-      ),
-      publicationDate:
-        metadataSummary.publicationDate || existingPublicationDate,
-      abstract: metadataSummary.abstract || finalNote.source?.abstract || null,
-      summary: metadataSummary.summary,
+      title: context.sourceTitle,
+      authors: asJsonValue(existingAuthors),
+      publicationDate: existingPublicationDate,
+      abstract: finalNote.source?.abstract || null,
+      summary: sourceSummary.summary,
       keyFindings: knowledge.keyFindings,
       userView: knowledge.userView,
       conclusion: knowledge.conclusion,
-      model: knowledge.model || metadataSummary.model || getProcessingModel(),
+      model: knowledge.model || sourceSummary.model || getProcessingModel(),
       sourceSnapshot,
     },
   });

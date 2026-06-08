@@ -33,6 +33,43 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 
 ## Final Result
 
+- Research-mode screenshots were being attached from temporary files instead of the normal persisted capture storage path.
+- Clicky requests were still forwarding local conversation history, reusing the normal Clicky pointing prompt in research mode, and running the extra pointing pass even for Clicky-research.
+- Clicky screenshot processing was still relying on Tesseract/Chat Completions, which missed selected text and weakly extracted screenshot-native fields.
+
+## Suspected Cause
+
+- The research ingest path used `createCaptureFromStoredFile()` on temp files rather than `createCapture()`, so it bypassed the normal stored capture flow used by extension captures.
+- The macOS client and backend still treated Clicky conversation context as local rolling history instead of separate memory namespaces.
+- The processing worker only had OCR-first logic and the OpenAI processing client still used `/v1/chat/completions`, so Clicky screenshots never got a vision-first extraction pass.
+
+## Files Touched
+
+- `app/api/_lib/services/research-note-ingest.service.ts`
+- `app/api/_lib/services/macos-assistant.service.ts`
+- `src/processing/openaiProcessingClient.ts`
+- `src/processing/processingTypes.ts`
+- `src/processing/processingJobRepository.ts`
+- `src/processing/workers/noteKnowledgeWorker.ts`
+- `macos/leanring-buddy/OpenAIAssistantAPI.swift`
+- `macos/leanring-buddy/CompanionManager.swift`
+
+## Fix Attempted
+
+- Switched research screenshot persistence to `createCapture()` so screenshots are written through the normal capture storage pipeline.
+- Stopped forwarding local conversation history to the backend assistant path.
+- Added separate Mem0 namespaces for `clicky` and `clicky-research`, with backend-side memory search/write for each mode.
+- Added a dedicated Clicky-research speech prompt and skipped the extra pointing detection pass entirely in research mode.
+- Switched processing OpenAI calls from Chat Completions to the Responses API.
+- Added Clicky vision extraction that reads screenshot images directly with GPT, extracts selected text/title/url/authors/abstract/publication date when present, generates a grounded title when missing, and stores the screenshot summary/important context for downstream note knowledge.
+- Kept the text-only fallback extractor for Clicky when image-driven fields are still missing after the main pass.
+
+## Final Result
+
+- Research-mode screenshots now persist like normal captures instead of dangling on temp paths.
+- Clicky and Clicky-research now use separate long-term Mem0 memory buckets without replaying local chat history.
+- Clicky-research no longer inherits the normal Clicky pointing prompt and does not make the extra pointing request.
+- Clicky screenshot processing now uses GPT vision plus the Responses API, which improves selected-text and metadata extraction and feeds more grounded screenshot context into note processing.
 - `npm run typecheck` passed in `extension/`.
 - `npm run build` passed in `extension/`.
 - The overlay now follows the persisted settings state, and the shortcut command toggles the overlay through the same storage source of truth.
@@ -42,6 +79,51 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 - Chrome rejected the manifest when `suggested_key.mac` used `Command`. The manifest now uses `Ctrl+Shift+P` for macOS too, which Chrome maps to Command on Mac.
 
 ## New Issue
+
+- The note research board, its full-screen dossiers, and the create/base-knowledge modals were still carrying hard-coded warm surfaces that did not fully match the app theme flow used by the chat surfaces.
+
+## Suspected Cause
+
+- Theme state was already propagating through `ThemeProvider`, but the note UI still relied on local one-off color mixes and fixed light-mode gradients inside modal shells and note panels instead of shared theme-aware surface tokens.
+
+## Files Touched
+
+- `app/layout.tsx`
+- `app/notes/[projectId]/sessions/[sessionId]/notes/[noteId]/page.tsx`
+- `components/navigation/GlobalNavControls.tsx`
+- `components/notes/NoteKnowledgeBuildPanel.tsx`
+- `components/notes/NotePinnaBoard.tsx`
+- `components/notes/noteTheme.ts`
+
+## Fix Attempted
+
+- Set the theme dataset and `color-scheme` immediately in the root layout bootstrap script so the document shell matches the persisted mode before hydration.
+- Added shared note surface classes and reused them across the knowledge panels, the research dossier, and the create/base-knowledge modals.
+- Replaced the hard-coded light-only modal shells with neutral theme-aware surfaces that inherit the same light/dark palette flow as the rest of the app.
+
+## Final Result
+
+- The note board and its modals now follow the main app theme consistently in both light and dark mode, with the same neutral surface family used by the chat surfaces instead of separate warm-only modal styling.
+
+## New Issue
+
+- The note board modal and central dossier were still being painted under sibling note panels because their full-screen overlays had no explicit z-index.
+
+## Suspected Cause
+
+- The board overlays were `fixed` but effectively `z-auto`, so they participated in the root stacking order behind later sibling panels in the note page grid.
+
+## Files Touched
+
+- `components/notes/NotePinnaBoard.tsx`
+
+## Fix Attempted
+
+- Assigned explicit z-layers to the board overlays so the active pinna modal sits above the rest of the note page and the central dossier sits just beneath it.
+
+## Final Result
+
+- Full-screen note overlays now render above sibling panels instead of being partially covered by the selected-text rail or the knowledge build card.
 
 - The page console reported `Uncaught (in promise) Error: Extension context invalidated` from the content script on `link.springer.com`.
 
@@ -258,6 +340,56 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 
 - `components/notes/NotePinnaBoard.tsx`
 - `components/notes/NoteKnowledgeBuildPanel.tsx`
+
+## New Issue
+
+- The vendored macOS desktop app logged `OpenAIAudioTranscriptionSession deallocated with non-zero retain count 2` after push-to-talk completed, even though backend transcription returned `200`.
+
+## Suspected Cause
+
+- `OpenAIAudioTranscriptionSession.deinit` called `cancel()`, and `cancel()` scheduled `stateQueue.async { self ... }`, which created a fresh strong reference to `self` while deallocation was already in progress.
+- The other `com.apple.linkd.autoShortcut`, HAL, and `DetachedSignatures` messages appear to be macOS framework noise because the app still launched, recorded, and hit `/api/macos-assistant/transcribe` successfully.
+
+## Files Touched
+
+- `macos/leanring-buddy/OpenAIAudioTranscriptionProvider.swift`
+
+## Fix Attempted
+
+- Changed `OpenAIAudioTranscriptionSession.cancel()` to clear state synchronously on its private queue instead of dispatching a new async closure that captures `self` during teardown.
+- Added queue-specific detection so the synchronous cleanup does not deadlock when already executing on the state queue.
+- Cleared the outstanding `transcriptionUploadTask` reference immediately after cancellation.
+
+## Final Result
+
+- The desktop transcription session teardown no longer creates an extra strong reference from inside `deinit`.
+- Backend transcription flow remains unchanged and still posts successfully to `/api/macos-assistant/transcribe`.
+
+## New Issue
+
+- The macOS desktop app completed transcription, but the next request to `POST /api/macos-assistant/respond` failed with HTTP `400` and the desktop fallback voice still said the inherited Clicky “out of credits / DM Farza” message.
+
+## Suspected Cause
+
+- The Swift client serialized `projectId: null` into the JSON assistant payload when research mode had no selected project, while the backend route validated `projectId` as an optional string rather than a nullable value.
+- The fallback TTS copy in the vendored `CompanionManager` had not yet been rewritten from the original Clicky demo string.
+
+## Files Touched
+
+- `macos/leanring-buddy/ClaudeAPI.swift`
+- `app/api/macos-assistant/respond/route.ts`
+- `macos/leanring-buddy/CompanionManager.swift`
+
+## Fix Attempted
+
+- Changed the Swift assistant client to omit `projectId` entirely unless it has a non-empty value.
+- Hardened the JSON request branch in `/api/macos-assistant/respond` so optional string fields ignore `null` and other non-string values instead of failing validation.
+- Replaced the old “DM Farza” fallback speech with an `openPinna`-specific backend/configuration error message.
+
+## Final Result
+
+- Desktop assistant requests no longer fail route validation when the project ID is absent.
+- If the backend assistant fails for a real provider/configuration reason, the spoken fallback now points to the local `openPinna` backend and OpenAI setup rather than the inherited Clicky copy.
 - `app/notes/[projectId]/sessions/[sessionId]/notes/[noteId]/page.tsx`
 
 ## Fix Attempted
@@ -1313,3 +1445,417 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 
 - openPinna now sends Mem0 deletes in the same shape as the working curl example: `DELETE /memories?user_id=pinna:...`.
 - Follow-up verification required by deleting a pinna and confirming the Mem0 server returns `2xx`.
+
+## New Issue
+
+- The macOS desktop buddy sometimes pointed far above or below the intended on-screen target during screenshot-guided assistance.
+
+## Suspected Cause
+
+- The main assistant response path mixed spoken text and freeform inline point tags, so coordinate generation was happening in a conversational format instead of a dedicated detection pass.
+- Screenshot-to-display mapping used the requested capture dimensions instead of the actual returned image dimensions, which could introduce scaling drift on the Y axis.
+- There was no verification or artifact trail to distinguish a bad model coordinate from a bad transform.
+
+## Files Touched
+
+- `macos/leanring-buddy/CompanionManager.swift`
+- `macos/leanring-buddy/CompanionScreenCaptureUtility.swift`
+- `macos/leanring-buddy/OpenAIAssistantAPI.swift`
+- `macos/leanring-buddy/AssistantPointingDetector.swift`
+- `macos/leanring-buddy/PointingDebugArtifactWriter.swift`
+- `macos/leanring-buddy/ClickyAnalytics.swift`
+
+## Fix Attempted
+
+- Split pointing into a second structured vision pass so the spoken response no longer needs to emit coordinates inline.
+- Kept legacy `[POINT:...]` parsing only as a fallback and stripped any tag from TTS output.
+- Changed screenshot metadata to store the actual captured `CGImage` pixel size.
+- Centralized screenshot-pixel to AppKit-global coordinate mapping in `CompanionManager`.
+- Added a verification crop pass for structured pointing plus optional annotated debug artifact writing through `openPinnaPointingDebugArtifactsEnabled`.
+- Reused the shared mapping helper in onboarding so both demo and normal pointing use the same transform path.
+
+## Final Result
+
+- `xcodebuild -project leanring-buddy.xcodeproj -scheme leanring-buddy -sdk macosx -derivedDataPath /private/tmp/openpinna-derived-data build` succeeded.
+- The desktop assistant now prefers a dedicated structured pointing pass with coordinate verification, uses actual image dimensions for scaling, and leaves a debug trail when artifact logging is enabled.
+
+## New Issue
+
+- Structured pointing requests were still being wrapped in the normal spoken-assistant backend prompt, and verification could suppress a visually plausible point even when the coordinate detector found the right target.
+
+## Suspected Cause
+
+- `/api/macos-assistant/respond` treated every request like a spoken assistant reply and prepended the same “openpinna desktop” speech instructions plus legacy `[POINT:none]` guidance.
+- The backend also echoed internal `desktopSystemPrompt` metadata back into the model input as normal source metadata text.
+- The macOS client still made an extra remote pointing-decision request and used verification as a hard gate instead of telemetry.
+
+## Files Touched
+
+- `app/api/macos-assistant/respond/route.ts`
+- `app/api/_lib/services/macos-assistant.service.ts`
+- `macos/leanring-buddy/OpenAIAssistantAPI.swift`
+- `macos/leanring-buddy/AssistantPointingDetector.swift`
+- `macos/leanring-buddy/CompanionManager.swift`
+
+## Fix Attempted
+
+- Added `requestKind` to the macOS assistant request contract with explicit values for spoken replies, coordinate detection, and verification.
+- Split backend prompt construction so structured pointing requests receive only the detector/verifier system prompt instead of the spoken-assistant wrapper.
+- Filtered internal desktop prompt metadata out of the model-visible `Source metadata` content block.
+- Removed the remote pointing-decision call and now use the local heuristic gate plus direct coordinate detection, trying the cursor screen first and then other screens.
+- Demoted verification to opt-in telemetry behind `openPinnaPointingVerificationEnabled` instead of allowing a `false` verification result to suppress pointing.
+- Changed structured fallback responses from legacy `[POINT:none]` strings to empty JSON-style fallbacks.
+
+## Final Result
+
+- Spoken assistant calls and structured pointing calls now use different backend prompt shapes.
+- The coordinate detector no longer receives the spoken-assistant wrapper or echoed internal prompt metadata.
+- Verification is no longer a default blocker, so plausible detected points continue through to pointer movement even if verification is disabled or returns `false`.
+- Verification after this change was limited to static code-path inspection and diff review because Xcode builds were intentionally not used for this iteration.
+
+## New Issue
+
+- The macOS Clicky app could keep relaunching as a menu bar app after an Xcode debug session ended.
+
+## Suspected Cause
+
+- The app is intentionally a menu bar-only agent because `LSUIElement` is set in `macos/leanring-buddy/Info.plist`.
+- A prior non-debug run could persist `SMAppService.mainApp` registration, and the debug build had no cleanup path for that existing login item.
+
+## Files Touched
+
+- `macos/leanring-buddy/leanring_buddyApp.swift`
+- `docs/debugging.md`
+
+## Fix Attempted
+
+- Kept the existing release-only login-item registration path.
+- Added a debug-only `SMAppService.mainApp.unregister()` cleanup on launch so Xcode runs remove any stale login-item registration before starting.
+
+## Final Result
+
+- Debug launches now clear persisted login-item registration for the app bundle, which prevents the menu bar app from continuing to relaunch after you stop the Xcode session.
+- Release builds still keep the existing auto-register behavior unless that policy is changed separately.
+
+## New Issue
+
+- Normal-mode macOS Clicky requests were succeeding, but the Next.js backend spammed repeated `[AggregateError] { code: 'ECONNREFUSED' }` lines during `/api/macos-assistant/transcribe`, `/respond`, `/tts`, and shortly afterward.
+
+## Suspected Cause
+
+- `app/api/_lib/services/macos-assistant.service.ts` imported the research-ingest service at module load time even for normal assistant requests.
+- The research-ingest service imports `source.service`, and `source.service` imports BullMQ queues from `app/api/_lib/queues`.
+- Creating those queue instances eagerly causes Redis connection attempts in the Next dev process, so if `REDIS_URL` points at a non-running local Redis, the backend logs repeated connection-refused noise even though the macOS assistant request itself still completes.
+
+## Files Touched
+
+- `app/api/_lib/services/macos-assistant.service.ts`
+- `docs/debugging.md`
+
+## Fix Attempted
+
+- Converted the research-ingest imports in `macos-assistant.service.ts` to type-only imports.
+- Deferred the runtime import of `persistResearchNote` until the research-only `persistStructuredResearchArtifacts()` path is actually called.
+
+## Final Result
+
+- Normal macOS assistant requests no longer eagerly initialize the research-ingest dependency chain, so they should stop triggering BullMQ/Redis connection attempts just by hitting the normal Clicky transcribe/respond/tts flow.
+- `npm run typecheck` passed after the lazy-import change.
+
+## New Issue
+
+- The blue Clicky reply bubble rendered words without spaces between them during on-screen pointing replies.
+
+## Suspected Cause
+
+- `OverlayWindow.swift` streams the bubble text one character at a time.
+- The rolling bubble helper trimmed whitespace on every incremental update, so each streamed space was removed before the next word arrived.
+
+## Files Touched
+
+- `macos/leanring-buddy/OverlayWindow.swift`
+- `docs/debugging.md`
+
+## Fix Attempted
+
+- Stopped trimming ordinary whitespace during rolling bubble updates.
+- Normalized only newline and carriage-return characters to spaces so the single-line bubble still stays clean without deleting inter-word spacing.
+
+## Final Result
+
+- The blue pointing bubble now preserves normal spaces between streamed words while still flattening line breaks into a single-line overlay.
+
+## New Issue
+
+- Clicky still showed its on-screen X/Y coordinate debug label next to the cursor during normal use.
+
+## Suspected Cause
+
+- `OverlayWindow.swift` still rendered a temporary monospaced position label whenever the buddy was visible on a screen.
+
+## Files Touched
+
+- `macos/leanring-buddy/OverlayWindow.swift`
+- `docs/debugging.md`
+
+## Fix Attempted
+
+- Removed the overlay block that rendered the floating X/Y position label.
+- Removed the unused helper that formatted the cursor position debug text.
+
+## Final Result
+
+- Clicky no longer shows the X/Y coordinate readout on screen, while cursor and pointing behavior remain unchanged.
+
+## New Issue
+
+- In normal Clicky mode, there was a noticeable delay between getting the assistant reply, pointing on screen, and starting spoken playback.
+
+## Suspected Cause
+
+- `CompanionManager.swift` awaited the structured pointing pass before starting TTS.
+- The spoken response, the second vision pass for pointing, and playback start all sat on the same serial path, so pointer resolution blocked speech from beginning.
+
+## Files Touched
+
+- `macos/leanring-buddy/CompanionManager.swift`
+- `docs/debugging.md`
+
+## Fix Attempted
+
+- Kept the first assistant response as the primary request.
+- Moved the structured pointing work into a parallel async task after the spoken reply text is available.
+- Moved TTS playback into its own async path and waited for actual audio playback completion before returning the response task to idle.
+- If the pointing result finishes before audio starts, the cursor leaves processing immediately so the pointer animation can begin without waiting for TTS.
+
+## Final Result
+
+- Normal Clicky replies now start TTS and the structured pointing pass concurrently after the first assistant response returns.
+- The second pointing pass no longer blocks speech start, which should reduce the gap between response generation and audible playback.
+
+## New Issue
+
+- Research mode from the macOS Clicky client failed when asking to save a note into the user's RAG project.
+
+## Suspected Cause
+
+- The research-mode backend path calls `createResearchNoteDecision()` in `app/api/_lib/services/macos-assistant.service.ts`, which calls `listProjects()` from `app/api/_lib/services/project.service.ts`.
+- `listProjects()` uses Prisma, and Prisma could not reach Postgres at `localhost:9001`, so research mode failed before it could resolve the target project.
+- The repeated `[AggregateError] { code: 'ECONNREFUSED' }` lines are a separate local-infra issue and are consistent with Redis at `localhost:9002` not being available when research-mode services import queue-backed modules.
+
+## Files Touched
+
+- `docs/debugging.md`
+
+## Fix Attempted
+
+- No code change in this step. The issue is blocked on local infrastructure availability rather than application logic.
+
+## Final Result
+
+- Research mode currently requires the local Postgres instance configured by `DATABASE_URL` to be reachable, and likely also requires the local Redis instance configured by `REDIS_URL` for downstream queue-backed persistence paths.
+- The immediate blocker shown in the logs is Postgres being unavailable at `localhost:9001`.
+
+## New Issue
+
+- Clicky screenshot extraction could return empty or weakly structured fields, causing note knowledge processing to fail on `OPENAI_EMPTY_RESPONSE` or to miss fields like visible selected text.
+
+## Suspected Cause
+
+- The extraction prompt did not describe how target fields can visually appear in screenshots, especially selected text highlighting.
+- Empty model outputs were not normalized consistently before downstream persistence and knowledge assembly.
+- The generic failed-job reschedule path did not match the desired Clicky extraction behavior for short 5-minute retries on missing core extraction fields.
+
+## Files Touched
+
+- `src/processing/openaiProcessingClient.ts`
+- `src/processing/processingTypes.ts`
+- `src/processing/processingJobRepository.ts`
+- `src/processing/workers/noteKnowledgeWorker.ts`
+- `docs/debugging.md`
+
+## Fix Attempted
+
+- Tightened the Clicky image extraction prompt to describe how `selectedText`, `title`, `url`, `authors`, `abstract`, and `publicationDate` may appear visually in the screenshot.
+- Added backend normalization for Clicky extraction results so empty descriptive strings become `N/A`, authors normalize to `[]`, and nullable URL/date fields stay nullable.
+- Treated `title`, `finalizedSummary`, and `importantContext` as the retry-critical core fields.
+- Added a Clicky-specific deferred retry path that reschedules for 5 minutes later and still consumes an attempt, instead of using the generic failure backoff for this case.
+- Allowed processing to continue with normalized placeholders once Clicky extraction retries are exhausted, while filtering placeholder-only screenshot context back out of downstream knowledge-building inputs.
+
+## Final Result
+
+- Clicky extraction now has stronger field guidance, including explicit selected-text highlighting cues.
+- Empty field handling is normalized in the backend before record updates and downstream note knowledge assembly.
+- Missing non-critical fields no longer force a retry.
+- Missing core extraction fields now reschedule for the next 5-minute run, and extraction no longer falls back to the long generic retry delay for this case.
+
+## New Issue
+
+- The Prisma schema and live database still contained screenshot-processing and thread-knowledge tables from older processing designs, even though the current runtime paths no longer used them.
+
+## Suspected Cause
+
+- Earlier pipeline refactors moved active processing onto `Capture`, `VoiceScreenshotSession`, `VoiceScreenshotChunk`, and the shared `ProcessingJobOutbox` note worker, but the old tables and relations were never removed from `prisma/schema.prisma`.
+- The old thread-level base-knowledge and knowledge-head tables were similarly left behind after the active knowledge system moved to note-base and pinna-head records.
+- Prisma schema drift remained because the stale tables were still present in both the schema and the database.
+
+## Files Touched
+
+- `prisma/schema.prisma`
+- `prisma/migrations/20260608003949_remove_dead_schema_artifacts/migration.sql`
+- `scripts/validate-processing-repository.ts`
+- `docs/debugging.md`
+
+## Fix Attempted
+
+- Audited the schema against current runtime usage and removed only tables and relations with no active read/write path.
+- Deleted stale Prisma models and relation fields for:
+  - `ScreenshotCaptureProcessing`
+  - `ScreenshotChunkProcessing`
+  - `ThreadBaseKnowledge`
+  - `ThreadKnowledgeHead`
+  - `Tool`
+  - `AgentToolPermission`
+- Removed the last leftover cleanup reference to `db.screenshotCaptureProcessing` from the processing repository validation script.
+- Generated and applied a Prisma migration to drop the unused tables and old outbox/history foreign-key columns.
+
+## Final Result
+
+- The Prisma schema and local database are now aligned around the active processing and knowledge models.
+- Removed database artifacts:
+  - `screenshot_capture_processing`
+  - `screenshot_chunk_processing`
+  - `thread_base_knowledge`
+  - `thread_knowledge_heads`
+  - `tools`
+  - `agent_tool_permissions`
+  - `processing_job_outbox.screenshot_processing_id`
+  - `processing_job_outbox.screenshot_chunk_processing_id`
+  - `processing_job_history.screenshot_processing_id`
+  - `processing_job_history.screenshot_chunk_processing_id`
+- The current schema keeps the models that still have active runtime paths, including the shared processing outbox/history flow, note-base knowledge, pinna knowledge, voice screenshot capture, and agent tool registry tables.
+
+## New Issue
+
+- Clicky screenshot extraction jobs were still being deferred with `CLICKY_EXTRACTION_RETRY:OPENAI_EMPTY_RESPONSE` even after the extraction prompt was tightened.
+
+## Suspected Cause
+
+- The processing OpenAI client was reading only `output_text` from the Responses API payload.
+- Some valid Responses API outputs can arrive as message content parts rather than a populated top-level `output_text`, so the client treated a valid model response as empty before field validation ran.
+- Research mode also still had one legacy `chat.completions.create()` call for the project-routing decision instead of using the standard Responses API path.
+
+## Files Touched
+
+- `src/processing/openaiProcessingClient.ts`
+- `app/api/_lib/services/macos-assistant.service.ts`
+- `docs/debugging.md`
+
+## Fix Attempted
+
+- Broadened the processing response parser to extract text from both `output_text` and structured `output[].content[]` entries, with a fallback for tool/function-style argument text.
+- Left the Clicky retry policy intact, but fixed the false-empty detection so valid extraction outputs are no longer deferred as `OPENAI_EMPTY_RESPONSE`.
+- Replaced the remaining macOS research-mode `chat.completions.create()` call with `client.responses.create()` while preserving the same function-call contract for `prepare_research_note`.
+
+## Final Result
+
+- The Clicky extraction job should now defer only when the model truly returns nothing or when the normalized core fields are still missing after parsing.
+- The repo no longer has any `chat.completions.create()` usage; OpenAI chat routing is now standardized on the Responses API.
+
+## New Issue
+
+- The research-note processing pipeline was extracting good metadata from screenshots, but the stored note/source fields and downstream knowledge inputs were still wrong or polluted by placeholders like `Research capture`.
+
+## Suspected Cause
+
+- The processing enqueue path and runtime context were treating `note.noteText` as fallback `selectedText`, which turned task-summary text into fake selected text.
+- Research ingest created source and capture titles from placeholder UI values like `Research capture`, and later processing preserved those placeholders as if they were legitimate titles.
+- The worker used a summary-first pipeline: image extraction for Clicky, OCR finalization for non-Clicky, then a second metadata-plus-summary call, which meant extracted fields were not the single canonical source of truth.
+- Transcript context was often missing in processing because research notes relied on `userCommentary`, while the worker only preferred voice transcripts.
+
+## Files Touched
+
+- `src/processing/workers/noteKnowledgeWorker.ts`
+- `src/processing/openaiProcessingClient.ts`
+- `src/processing/processingTypes.ts`
+- `src/processing/index.ts`
+- `app/api/_lib/services/research-note-ingest.service.ts`
+- `docs/debugging.md`
+
+## Fix Attempted
+
+- Changed the processing flow to metadata-first:
+  - use local OCR text when available
+  - fall back to screenshot-image extraction only when OCR text is unavailable
+  - extract structured fields first
+  - build source summary and note knowledge second from the normalized stored fields plus commentary/transcript
+- Removed the `note.noteText` fallback from `selectedText`.
+- Treated placeholder titles like `Research capture` and `Research screenshot` as empty during ingest and processing.
+- Used research `userCommentary` as transcript fallback in the processing runtime context.
+- Changed research-note creation so `noteText` prefers the actual transcript/prompt over the task summary when selected text is absent.
+- Logged missing structured extraction fields without blocking processing when non-critical fields are absent.
+
+## Final Result
+
+- Structured source fields are now extracted once and used as the canonical inputs for source/note updates.
+- OCR text is preferred over screenshot vision when OCR exists; screenshot vision is only used as fallback metadata extraction.
+- The downstream summary and knowledge-build steps now receive the extracted text plus the user commentary as transcript context.
+- Placeholder titles like `Research capture` no longer survive as real source titles when a better extracted title is available.
+- Existing placeholder titles are now replaceable during processing updates, so an extracted title can overwrite a stored placeholder instead of being blocked by it.
+- Clicky-origin captures specifically skip the local OCR stage and continue to use screenshot-image extraction only, matching the earlier Clicky processing behavior.
+
+## New Issue
+
+- The `Note` model still used the name `noteText` in code even though the field was now being treated as canonical selected text, which caused repeated confusion and bad fallback behavior.
+
+## Suspected Cause
+
+- The original note model mixed two concepts into one field: captured selected text and general note body.
+- Downstream code, agent context, and prompts still referenced `noteText`, while newer capture paths expected selected text semantics.
+- Some note creation paths were still falling back to transcript or task-summary content when selected text was absent.
+
+## Files Touched
+
+- `prisma/schema.prisma`
+- `app/api/_lib/services/note.service.ts`
+- `app/api/_lib/validation.ts`
+- `app/api/_lib/services/research-note-ingest.service.ts`
+- `app/api/_lib/services/voice/voice-session.service.ts`
+- `app/api/_lib/services/knowledge.service.ts`
+- `app/api/_lib/services/tool-registry.service.ts`
+- `app/api/_lib/ai.ts`
+- `app/api/notes/route.ts`
+- `app/notes/actions.ts`
+- `app/notes/page.tsx`
+- `app/notes/[projectId]/page.tsx`
+- `app/notes/[projectId]/sessions/[sessionId]/page.tsx`
+- `app/notes/[projectId]/sessions/[sessionId]/notes/[noteId]/page.tsx`
+- `src/agents/core/agent-types.ts`
+- `src/agents/core/agent-factory.ts`
+- `src/agents/core/agent-catalog.ts`
+- `src/agents/core/agent-orchestrator.ts`
+- `src/agents/openai/openai-tool-adapter.ts`
+- `src/agents/openai/responses-agent-runner.ts`
+- `src/agents/skills/skill-loader.ts`
+- `src/processing/openaiProcessingClient.ts`
+- `src/processing/workers/noteKnowledgeWorker.ts`
+- `scripts/assert-layered-agent-architecture.ts`
+- `scripts/validate-processing-repository.ts`
+- `docs/debugging.md`
+
+## Fix Attempted
+
+- Renamed the Prisma `Note` field from `noteText` to `selectedText` across application code.
+- Removed all remaining runtime references to `noteText` in processing, agent context, note APIs, UI note cards, and validation paths.
+- Changed note creation paths so the note-selected-text field stores actual selected text or `N/A`, with no fallback from commentary/transcript/task summary.
+- Updated processing so extracted selected text now updates the note’s own `selectedText` field when the current value is empty or `N/A`.
+- Tightened structured OpenAI prompts to specify exact JSON object shapes for field extraction, grounded summary, and knowledge-build outputs.
+- Kept the renamed Prisma field mapped to the existing `notes.note_text` database column for now, avoiding a destructive migration on existing rows while still removing the misleading `noteText` API surface from the codebase.
+
+## Final Result
+
+- The canonical note field is now `selectedText` throughout the application code.
+- New notes store actual selected text or `N/A`; they no longer fall back to commentary or task-summary content.
+- Extracted selected text now propagates into the note record itself, not only the capture record.
+- Model prompts now declare fixed JSON response shapes explicitly.
+- The physical database column remains `notes.note_text` behind Prisma field mapping, so no risky column rewrite was required to complete the semantic rename.

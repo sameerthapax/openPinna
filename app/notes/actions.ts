@@ -26,7 +26,10 @@ export async function createSessionAction(projectId: string) {
 
 export async function createSessionNoteAction(sessionId: string, formData: FormData) {
   const parsed = createNoteSchema.safeParse({
-    noteText: formData.get("body") || formData.get("noteText"),
+    selectedText:
+      formData.get("selectedText") ||
+      formData.get("body") ||
+      "N/A",
     sourceId: formData.get("sourceId"),
     captureId: formData.get("captureId"),
     userCommentary: formData.get("userCommentary"),

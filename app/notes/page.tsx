@@ -29,7 +29,7 @@ export default async function NotesPage() {
         include: {
           notes: {
             orderBy: { createdAt: "desc" },
-            select: { id: true, noteText: true, noteSummary: true, source: { select: { title: true } } },
+            select: { id: true, selectedText: true, noteSummary: true, source: { select: { title: true } } },
           },
         },
       },
@@ -149,7 +149,7 @@ export default async function NotesPage() {
                           className="block h-[92px] overflow-hidden border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:translate-x-[2px] hover:bg-[var(--surface)]"
                         >
                           <p className="truncate text-sm">{note.source?.title || "No source title"}</p>
-                          <p className="mt-1 line-clamp-2 text-xs text-[var(--muted-foreground)]">{note.noteSummary || note.noteText}</p>
+                          <p className="mt-1 line-clamp-2 text-xs text-[var(--muted-foreground)]">{note.noteSummary || note.selectedText}</p>
                         </Link>
                       )) : <div className="border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--muted-foreground)]">No notes</div>}
                     </div>

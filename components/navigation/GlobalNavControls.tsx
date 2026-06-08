@@ -6,6 +6,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { Cross2Icon, PlusIcon } from "@radix-ui/react-icons";
 import { createPortal } from "react-dom";
 import { ThemeModeToggle } from "@/components/navigation/ThemeModeToggle";
+import {
+  noteDialogClass,
+  noteDialogWideClass,
+  noteOverlayClass,
+} from "@/components/notes/noteTheme";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 
 type CreateScope = "project" | "session" | "note";
@@ -294,15 +299,9 @@ export function GlobalNavControls() {
 
       {mounted && open
         ? createPortal(
-            <div
-              className="fixed inset-0 z-30 bg-[var(--overlay-bg)] backdrop-blur-[3px]"
-              onMouseDown={() => setOpen(false)}
-            >
+            <div className={`${noteOverlayClass} z-30 backdrop-blur-[3px]`} onMouseDown={() => setOpen(false)}>
               <div className="mx-auto flex h-full max-w-7xl justify-center px-4 pt-[104px] pb-8">
-                <div
-                  className="max-h-[calc(100dvh-140px)] w-full max-w-xl overflow-y-auto border border-[var(--border)] bg-[var(--surface)] p-6"
-                  onMouseDown={(event) => event.stopPropagation()}
-                >
+                <div className={`${noteDialogClass} max-h-[calc(100dvh-140px)] overflow-y-auto`} onMouseDown={(event) => event.stopPropagation()}>
                   <div className="flex items-center justify-between">
                     <p className="font-mono-ui text-[11px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{scope === "project" ? "Create project" : scope === "session" ? "Create session" : "Create note"}</p>
                     <button type="button" onClick={() => setOpen(false)} className="rounded-[6px] p-2 transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-[var(--muted)] focus-visible:focus-ring"><Cross2Icon className="h-4 w-4" /></button>
@@ -353,15 +352,9 @@ export function GlobalNavControls() {
 
       {mounted && pinnaBasePrompt
         ? createPortal(
-            <div
-              className="fixed inset-0 z-30 bg-[var(--overlay-bg)] backdrop-blur-[3px]"
-              onMouseDown={() => setPinnaBasePrompt(null)}
-            >
+            <div className={`${noteOverlayClass} z-30 backdrop-blur-[3px]`} onMouseDown={() => setPinnaBasePrompt(null)}>
               <div className="mx-auto flex h-full max-w-5xl items-center justify-center px-4 py-8">
-                <div
-                  className="w-full max-w-3xl rounded-[1.6rem] border border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] bg-[color-mix(in_srgb,var(--surface)_96%,var(--pastel-yellow)_4%)] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.44)]"
-                  onMouseDown={(event) => event.stopPropagation()}
-                >
+                <div className={noteDialogWideClass} onMouseDown={(event) => event.stopPropagation()}>
                   <div className="flex items-start justify-between gap-4 border-b border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] pb-5">
                     <div>
                       <p className="font-mono-ui text-[10px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">

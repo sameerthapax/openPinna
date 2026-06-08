@@ -50,7 +50,7 @@ export const createNoteSchema = z.object({
   captureId: uuidSchema.optional().nullable(),
   voiceSessionId: uuidSchema.optional().nullable(),
   voiceAudioId: uuidSchema.optional().nullable(),
-  noteText: z.string().trim().min(1),
+  selectedText: z.string().trim().min(1),
   userCommentary: z.string().trim().optional().nullable(),
 });
 

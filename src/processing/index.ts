@@ -65,9 +65,26 @@ export async function enqueueNoteKnowledgeJobForNoteId(
   const selectedText =
     note.capture?.selectedText ||
     note.voiceSession?.selectedText ||
-    note.noteText ||
     null;
   const userComment = note.userCommentary || null;
+  const captureOrigin =
+    note.capture?.sourceLabel ||
+    (note.voiceSession?.screenshotSession?.sourceJson &&
+    typeof note.voiceSession.screenshotSession.sourceJson === "object" &&
+    !Array.isArray(note.voiceSession.screenshotSession.sourceJson) &&
+    typeof (
+      note.voiceSession.screenshotSession.sourceJson as Record<string, unknown>
+    )?.metadata === "object"
+      ? (
+          (
+            note.voiceSession.screenshotSession.sourceJson as Record<
+              string,
+              unknown
+            >
+          ).metadata as Record<string, unknown>
+        )?.captureOrigin
+      : null) ||
+    null;
 
   console.info(`${processingLogPrefix} enqueue note knowledge job`, {
     noteId: note.id,
@@ -98,11 +115,15 @@ export async function enqueueNoteKnowledgeJobForNoteId(
         pageTitle,
         selectedText,
         userComment,
+        captureOrigin: typeof captureOrigin === "string" ? captureOrigin : null,
         hasAudio: Boolean(note.voiceAudioId),
         hasScreenshots: Boolean(screenshotId || captureIds.length > 0),
         screenshotId,
         audioId: note.voiceAudioId,
         captureIds,
+        directScreenshotText: null,
+        directScreenshotOcrModel: null,
+        directScreenshotSummary: null,
         currentStep: "retrieval",
         selectedScreenshotChunkIds: [],
         selectedScreenshotChunkCount: 0,

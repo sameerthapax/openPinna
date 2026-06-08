@@ -20,11 +20,15 @@ function normalizePayload(payload: ProcessingJobPayload) {
     pageTitle: payload.pageTitle ?? null,
     selectedText: payload.selectedText ?? null,
     userComment: payload.userComment ?? null,
+    captureOrigin: payload.captureOrigin ?? null,
     hasAudio: Boolean(payload.hasAudio),
     hasScreenshots: Boolean(payload.hasScreenshots),
     screenshotId: payload.screenshotId ?? null,
     audioId: payload.audioId ?? null,
     captureIds: payload.captureIds ?? [],
+    directScreenshotText: payload.directScreenshotText ?? null,
+    directScreenshotOcrModel: payload.directScreenshotOcrModel ?? null,
+    directScreenshotSummary: payload.directScreenshotSummary ?? null,
     currentStep: payload.currentStep ?? "retrieval",
     selectedScreenshotChunkIds: payload.selectedScreenshotChunkIds ?? [],
     selectedScreenshotChunkCount: payload.selectedScreenshotChunkCount ?? 0,
@@ -335,9 +339,7 @@ export async function deleteOutboxJob(jobId: string, client: DbClient = db) {
   });
 }
 
-export async function markProcessingJobSucceeded(
-  job: ProcessingJobRecord,
-) {
+export async function markProcessingJobSucceeded(job: ProcessingJobRecord) {
   console.info(`${processingLogPrefix} mark job succeeded`, {
     jobId: job.id,
     jobType: job.jobType,
@@ -411,7 +413,9 @@ export async function deferProcessingJob(
     data: {
       status: "pending",
       runAfter: deferred.runAfter,
-      attempts: Math.max(0, job.attempts - 1),
+      attempts: deferred.consumeAttempt
+        ? job.attempts
+        : Math.max(0, job.attempts - 1),
       lockedAt: null,
       lockedBy: null,
       lastError: deferred.message,

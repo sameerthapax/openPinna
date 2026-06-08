@@ -552,10 +552,7 @@ async function createVoiceBackedNote(session: NonNullable<Awaited<ReturnType<typ
     captureId,
     voiceSessionId: session.id,
     voiceAudioId: session.audio.id,
-    noteText:
-      (session.selectedText || "").trim() ||
-      (session.audio.finalTranscript || "").trim() ||
-      "Voice recording",
+    selectedText: (session.selectedText || "").trim() || "N/A",
     userCommentary: (session.audio.finalTranscript || "").trim() || null,
   });
 

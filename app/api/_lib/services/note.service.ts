@@ -39,7 +39,7 @@ export async function createNote(input: {
   captureId?: string | null;
   voiceSessionId?: string | null;
   voiceAudioId?: string | null;
-  noteText: string;
+  selectedText: string;
   userCommentary?: string | null;
 }) {
   return db.$transaction(async (tx) => {
@@ -51,7 +51,7 @@ export async function createNote(input: {
         captureId: input.captureId || null,
         voiceSessionId: input.voiceSessionId || null,
         voiceAudioId: input.voiceAudioId || null,
-        noteText: input.noteText,
+        selectedText: input.selectedText,
         userCommentary: input.userCommentary || null,
       },
     });

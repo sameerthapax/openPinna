@@ -32,7 +32,6 @@ export type SkillPromptInput = {
   memorySummary?: string | null;
   projectSummary?: string | null;
   sessionSummary?: string | null;
-  noteText?: string | null;
   sourceTitle?: string | null;
   selectedText?: string | null;
   threadSummary?: string | null;
@@ -118,7 +117,6 @@ export type AgentContext = {
   customInstructions?: string | null;
   projectSummary?: string | null;
   sessionSummary?: string | null;
-  noteText?: string | null;
   sourceTitle?: string | null;
   selectedText?: string | null;
   threadSummary?: string | null;

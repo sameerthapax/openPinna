@@ -72,7 +72,6 @@ export function buildSkillRuntimeInstructions(
     `${toScopedContextLabel(input.scope)}:`,
     input.projectSummary ? `Project summary:\n${input.projectSummary}` : null,
     input.sessionSummary ? `Session summary:\n${input.sessionSummary}` : null,
-    input.noteText ? `Note text:\n${input.noteText}` : null,
     input.sourceTitle ? `Source title: ${input.sourceTitle}` : null,
     input.selectedText ? `Selected text:\n${input.selectedText}` : null,
     input.threadSummary ? `Thread summary:\n${input.threadSummary}` : null,

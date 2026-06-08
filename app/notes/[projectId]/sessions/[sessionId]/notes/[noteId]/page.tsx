@@ -7,6 +7,7 @@ import {
   NoteSelectedTextPanel,
 } from "@/components/notes/NoteKnowledgeBuildPanel";
 import { NotePinnaBoard } from "@/components/notes/NotePinnaBoard";
+import { noteSectionClass } from "@/components/notes/noteTheme";
 
 function normalizeAuthorList(value: unknown): string[] {
   if (typeof value === "string") {
@@ -65,7 +66,7 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
 
   if (!note || note.sessionId !== sessionId || note.session.projectId !== projectId) notFound();
   const noteTitle = note.source?.title || note.source?.url || "No source";
-  const selectedText = note.noteText || "";
+  const selectedText = note.selectedText || "";
   const noteOpinion = note.userCommentary || "";
   const noteKnowledge =
     note.baseKnowledgeHead?.currentVersion ||
@@ -115,7 +116,7 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
 
   return (
     <div className="space-y-6 pb-16">
-      <section className="rounded-[2rem] border border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] bg-[color-mix(in_srgb,var(--surface)_90%,var(--pastel-yellow)_10%)] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.42)] md:p-8">
+      <section className={`${noteSectionClass} p-6 md:p-8`}>
         <div className="space-y-3 border-b border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] pb-7">
           <p className="font-mono-ui text-[11px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Note research board</p>
           <h1 className="font-editorial text-5xl tracking-[-0.04em]">{note.session.project.title}</h1>

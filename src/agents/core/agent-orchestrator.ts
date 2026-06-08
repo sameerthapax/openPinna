@@ -70,7 +70,7 @@ export async function runPinnaThreadTurn(input: {
       projectId: context.projectId,
       sessionId: context.sessionId,
       noteId: context.noteId,
-      noteText: context.noteText ?? undefined,
+      selectedText: context.selectedText ?? undefined,
       sourceText: thread.note.source?.fullText || thread.note.capture?.selectedText || undefined,
     },
   });

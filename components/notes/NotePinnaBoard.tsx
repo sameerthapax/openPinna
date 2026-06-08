@@ -3,6 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
 import { useThemeMode } from "@/components/navigation/ThemeProvider";
+import {
+  noteMiniCardClass,
+  noteOverlayClass,
+  noteSectionClass,
+  notePillClass,
+} from "@/components/notes/noteTheme";
 import { cn } from "@/lib/utils";
 
 type PinnaMessage = {
@@ -711,7 +717,7 @@ export function NotePinnaBoard({
 
       {activeNode ? (
         <div
-          className="fixed inset-0 z-40 bg-[var(--overlay-bg)]"
+          className={`${noteOverlayClass} z-[50]`}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
               setActiveNodeId(null);
@@ -722,12 +728,10 @@ export function NotePinnaBoard({
             <div
               className={cn(
                 "flex h-[88dvh] w-full max-w-[1500px] min-w-0 flex-col rounded-[34px] p-5 backdrop-blur-3xl sm:p-7",
-                isDarkTheme
-                  ? "border border-[rgba(242,239,233,0.1)] bg-[linear-gradient(180deg,rgba(20,18,17,0.98),rgba(11,10,9,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_44px_110px_-54px_rgba(0,0,0,0.82)]"
-                  : "border border-[rgba(186,170,146,0.16)] bg-[linear-gradient(180deg,rgba(251,247,240,0.98),rgba(244,237,227,0.95))] shadow-[inset_0_1px_0_rgba(255,255,255,0.82),0_34px_90px_-58px_rgba(115,91,56,0.16)]",
+                "border border-[color-mix(in_srgb,var(--foreground)_10%,transparent)] bg-[color-mix(in_srgb,var(--surface)_94%,var(--foreground)_6%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.42),0_44px_110px_-54px_rgba(17,17,17,0.24)]",
               )}
             >
-              <div className={cn("mb-5 flex items-start justify-between pb-5", isDarkTheme ? "border-b border-[rgba(242,239,233,0.12)]" : "border-b border-[var(--border)]/70")}>
+              <div className="mb-5 flex items-start justify-between border-b border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] pb-5">
                 <div>
                   <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Pinna chat</p>
                   <h3 className="mt-2 text-2xl font-semibold tracking-[-0.02em] sm:text-3xl">{activeNode.question}</h3>
@@ -773,9 +777,7 @@ export function NotePinnaBoard({
                 <div
                   className={cn(
                     "flex min-h-0 min-w-0 flex-col rounded-[30px] p-5 backdrop-blur-2xl",
-                    isDarkTheme
-                      ? "border border-[rgba(242,239,233,0.08)] bg-[linear-gradient(180deg,rgba(24,22,20,0.98),rgba(16,14,13,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_-40px_rgba(0,0,0,0.82)]"
-                      : "border border-[rgba(186,170,146,0.12)] bg-[linear-gradient(180deg,rgba(251,244,236,0.95),rgba(242,233,220,0.92))] shadow-[inset_0_1px_0_rgba(255,255,255,0.84),0_18px_44px_-34px_rgba(136,104,62,0.14)]",
+                    noteSectionClass,
                   )}
                 >
                   {deleteError ? (
@@ -799,7 +801,7 @@ export function NotePinnaBoard({
                   >
                     {activeNode.hasOlderMessages || loadingOlderMessages ? (
                       <div className="sticky top-0 z-10 flex justify-center py-2">
-                        <div className={cn("rounded-full px-3 py-1.5 font-mono-ui text-[10px] uppercase tracking-[0.14em]", isDarkTheme ? "border border-[rgba(242,239,233,0.08)] bg-[rgba(28,25,22,0.94)] text-[rgba(184,177,163,0.92)]" : "border border-[rgba(186,170,146,0.12)] bg-[rgba(255,250,243,0.8)] text-[color:#8a7358] shadow-[0_10px_24px_-22px_rgba(100,78,47,0.16)]")}>
+                        <div className={cn(notePillClass, "px-3 py-1.5")}>
                           {loadingOlderMessages ? "Loading older messages" : "Scroll up for earlier messages"}
                         </div>
                       </div>
@@ -956,17 +958,12 @@ export function NotePinnaBoard({
                 </div>
 
                 <aside
-                  className={cn(
-                    "min-h-0 min-w-0 overflow-y-auto rounded-[30px] p-5",
-                    isDarkTheme
-                      ? "border border-[rgba(242,239,233,0.08)] bg-[linear-gradient(180deg,rgba(22,20,18,0.98),rgba(14,13,11,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_28px_56px_-40px_rgba(0,0,0,0.78)]"
-                      : "border border-[rgba(186,170,146,0.12)] bg-[linear-gradient(180deg,rgba(255,252,247,0.96),rgba(247,241,233,0.92))] shadow-[inset_0_1px_0_rgba(255,255,255,0.82),0_18px_44px_-34px_rgba(136,104,62,0.1)]",
-                  )}
+                  className={cn("min-h-0 min-w-0 overflow-y-auto rounded-[30px] p-5", noteSectionClass)}
                 >
                   <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Context spine</p>
                   <h4 className="mt-2 text-lg font-semibold tracking-[-0.02em]">Live note context</h4>
                   <div className="mt-4 space-y-3 text-sm leading-7 text-[var(--muted-foreground)]">
-                    <div className={cn("rounded-[24px] p-5", isDarkTheme ? "border border-[rgba(242,239,233,0.08)] bg-[linear-gradient(180deg,rgba(31,28,25,0.98),rgba(22,20,18,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]" : "border border-[rgba(196,179,154,0.1)] bg-[rgba(255,251,246,0.82)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]")}>
+                    <div className={cn(noteMiniCardClass, "rounded-[24px] p-5")}>
                       <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
                         Summary
                       </p>
@@ -976,13 +973,13 @@ export function NotePinnaBoard({
                     </div>
                     {knowledgeSections ? (
                       <>
-                        <div className={cn("rounded-[24px] p-5", isDarkTheme ? "border border-[rgba(242,239,233,0.08)] bg-[linear-gradient(180deg,rgba(31,28,25,0.98),rgba(22,20,18,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]" : "border border-[rgba(196,179,154,0.1)] bg-[rgba(255,251,246,0.82)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]")}>
+                        <div className={cn(noteMiniCardClass, "rounded-[24px] p-5")}>
                           <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
                             Key findings
                           </p>
                           <p className="mt-2 text-[var(--foreground)]">{knowledgeSections.keyFindings}</p>
                         </div>
-                        <div className={cn("rounded-[24px] p-5", isDarkTheme ? "border border-[rgba(242,239,233,0.08)] bg-[linear-gradient(180deg,rgba(31,28,25,0.98),rgba(22,20,18,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]" : "border border-[rgba(196,179,154,0.1)] bg-[rgba(255,251,246,0.82)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]")}>
+                        <div className={cn(noteMiniCardClass, "rounded-[24px] p-5")}>
                           <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
                             User view
                           </p>
@@ -990,7 +987,7 @@ export function NotePinnaBoard({
                         </div>
                       </>
                     ) : (
-                      <div className={cn("rounded-[24px] p-5", isDarkTheme ? "border border-[rgba(242,239,233,0.08)] bg-[linear-gradient(180deg,rgba(31,28,25,0.98),rgba(22,20,18,0.96))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]" : "border border-[rgba(196,179,154,0.1)] bg-[rgba(255,251,246,0.82)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]")}>
+                      <div className={cn(noteMiniCardClass, "rounded-[24px] p-5")}>
                         <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
                           Build status
                         </p>
@@ -1009,7 +1006,7 @@ export function NotePinnaBoard({
 
       {isCentralOpen ? (
         <div
-          className="fixed inset-0 z-40 bg-[var(--overlay-bg)]"
+          className={`${noteOverlayClass} z-[45]`}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
               setIsCentralOpen(false);
@@ -1017,7 +1014,12 @@ export function NotePinnaBoard({
           }}
         >
           <div className="mx-auto flex h-full max-w-[1800px] items-center justify-center px-4 py-6 sm:px-6">
-            <div className="flex h-[90dvh] w-[90vw] min-w-[320px] min-h-0 flex-col rounded-[2rem] border border-white/20 bg-[rgba(244,240,233,0.86)] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.42),0_30px_80px_-50px_rgba(27,21,14,0.5)] backdrop-blur-3xl dark:bg-[rgba(24,22,19,0.78)] sm:p-7">
+            <div
+              className={cn(
+                "flex h-[90dvh] w-[90vw] min-w-[320px] min-h-0 flex-col rounded-[2rem] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.42),0_30px_80px_-50px_rgba(27,21,14,0.28)] backdrop-blur-3xl sm:p-7",
+                "border border-[color-mix(in_srgb,var(--foreground)_10%,transparent)] bg-[color-mix(in_srgb,var(--surface)_94%,var(--foreground)_6%)]",
+              )}
+            >
               <div className="mb-5 flex items-start justify-between border-b border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] pb-5">
                 <div>
                   <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Central note</p>
@@ -1038,7 +1040,7 @@ export function NotePinnaBoard({
               <div className="min-h-0 flex-1 overflow-y-auto pr-1">
                 <div className="grid min-h-full grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.35fr)_360px]">
                   <div className="grid content-start gap-5">
-                    <section className="rounded-[1.8rem] border border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] bg-[color-mix(in_srgb,var(--surface)_88%,var(--pastel-yellow)_12%)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.48)]">
+                    <section className={noteSectionClass}>
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
                           <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
@@ -1048,7 +1050,7 @@ export function NotePinnaBoard({
                             {sourceDetails.title || noteTitle}
                           </h4>
                         </div>
-                        <span className="rounded-full bg-[var(--pastel-yellow)] px-3 py-1 font-mono-ui text-[10px] uppercase tracking-[0.14em] text-[var(--pastel-yellow-text)]">
+                        <span className={notePillClass}>
                           Informative view
                         </span>
                       </div>
@@ -1064,7 +1066,7 @@ export function NotePinnaBoard({
                           {sourceFacts.map((fact) => (
                             <div
                               key={fact.label}
-                              className="rounded-[1.2rem] border border-[color-mix(in_srgb,var(--foreground)_7%,transparent)] bg-[var(--surface)] px-4 py-3"
+                              className={noteMiniCardClass}
                             >
                               <p className="font-mono-ui text-[10px] uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
                                 {fact.label}
@@ -1077,7 +1079,7 @@ export function NotePinnaBoard({
                     </section>
 
                     <div className="grid gap-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-                      <section className="rounded-[1.8rem] border border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] bg-[var(--surface)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+                      <section className={noteSectionClass}>
                         <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
                           Summary
                         </p>
@@ -1086,7 +1088,7 @@ export function NotePinnaBoard({
                         </div>
                       </section>
 
-                      <section className="rounded-[1.8rem] border border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] bg-[color-mix(in_srgb,var(--pastel-blue)_22%,var(--surface))] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+                      <section className={noteSectionClass}>
                         <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
                           My opinion
                         </p>
@@ -1097,7 +1099,7 @@ export function NotePinnaBoard({
                     </div>
 
                     <div className="grid gap-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-                      <section className="rounded-[1.8rem] border border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] bg-[var(--surface)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+                      <section className={noteSectionClass}>
                         <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
                           Abstract
                         </p>
@@ -1107,7 +1109,7 @@ export function NotePinnaBoard({
                       </section>
 
                       {sourceMetadataEntries.length > 0 ? (
-                        <section className="rounded-[1.8rem] border border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] bg-[color-mix(in_srgb,var(--pastel-green)_20%,var(--surface))] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+                        <section className={noteSectionClass}>
                           <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
                             Additional metadata
                           </p>
@@ -1129,7 +1131,7 @@ export function NotePinnaBoard({
                     </div>
                   </div>
 
-                  <aside className="min-h-0 rounded-[1.8rem] border border-[color-mix(in_srgb,var(--foreground)_8%,transparent)] bg-[color-mix(in_srgb,var(--surface)_88%,var(--pastel-yellow)_12%)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.48)]">
+                  <aside className={noteSectionClass}>
                     <div className="flex h-full min-h-0 flex-col">
                       <div>
                         <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">

@@ -19,7 +19,7 @@ export async function executeToolCallForPinna(input: {
     projectId: string;
     sessionId: string;
     noteId: string;
-    noteText?: string;
+    selectedText?: string;
     sourceText?: string;
   };
 }): Promise<ExecutedToolCall> {
@@ -50,7 +50,7 @@ export async function executeToolCallForPinna(input: {
         projectId: input.noteContext.projectId,
         sessionId: input.noteContext.sessionId,
         noteId: input.noteContext.noteId,
-        noteText: input.noteContext.noteText,
+        selectedText: input.noteContext.selectedText,
         sourceText: input.noteContext.sourceText,
       },
     });

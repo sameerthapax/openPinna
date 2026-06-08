@@ -42,11 +42,15 @@ export const processingJobPayloadSchema = z.object({
   pageTitle: z.string().trim().nullable().optional(),
   selectedText: z.string().nullable().optional(),
   userComment: z.string().nullable().optional(),
+  captureOrigin: z.string().trim().nullable().optional(),
   hasAudio: z.boolean().default(false),
   hasScreenshots: z.boolean().default(false),
   screenshotId: z.string().uuid().nullable().optional(),
   audioId: z.string().uuid().nullable().optional(),
   captureIds: z.array(z.string().uuid()).default([]),
+  directScreenshotText: z.string().trim().nullable().optional(),
+  directScreenshotOcrModel: z.string().trim().nullable().optional(),
+  directScreenshotSummary: z.string().trim().nullable().optional(),
   currentStep: noteProcessingStepSchema.default("retrieval"),
   selectedScreenshotChunkIds: z.array(z.string().uuid()).default([]),
   selectedScreenshotChunkCount: z.number().int().nonnegative().default(0),
@@ -81,11 +85,13 @@ export type ProcessingJobRecord = z.infer<typeof processingJobRecordSchema>;
 
 export class DeferredProcessingError extends Error {
   runAfter: Date;
+  consumeAttempt: boolean;
 
-  constructor(message: string, runAfter?: Date) {
+  constructor(message: string, runAfter?: Date, consumeAttempt = false) {
     super(message);
     this.name = "DeferredProcessingError";
     this.runAfter = runAfter ?? new Date(Date.now() + 60 * 1000);
+    this.consumeAttempt = consumeAttempt;
   }
 }
 
@@ -95,24 +101,40 @@ export const extractedScreenshotSchema = z.object({
 });
 export type ExtractedScreenshot = z.infer<typeof extractedScreenshotSchema>;
 
-export const finalizedScreenshotInfoSchema = z.object({
-  finalizedSummary: z.string().trim().default(""),
-  importantContext: z.string().trim().default(""),
-  model: z.string().trim().min(1),
-});
-export type FinalizedScreenshotInfo = z.infer<
-  typeof finalizedScreenshotInfoSchema
->;
-
-export const sourceMetadataSummarySchema = z.object({
-  title: z.string().trim().nullable(),
-  authors: z.array(z.string().trim()).default([]),
-  publicationDate: z.string().trim().nullable(),
-  abstract: z.string().trim().nullable(),
+export const groundedSourceSummarySchema = z.object({
   summary: z.string().trim().nullable(),
   model: z.string().trim().min(1),
 });
-export type SourceMetadataSummary = z.infer<typeof sourceMetadataSummarySchema>;
+export type GroundedSourceSummary = z.infer<
+  typeof groundedSourceSummarySchema
+>;
+
+export const screenshotFieldExtractionSchema = z.object({
+  selectedText: z.string().trim().nullable(),
+  title: z.string().trim().nullable(),
+  url: z.string().trim().nullable(),
+  authors: z.array(z.string().trim()).default([]),
+  abstract: z.string().trim().nullable(),
+  publicationDate: z.string().trim().nullable(),
+  model: z.string().trim().min(1),
+});
+export type ScreenshotFieldExtraction = z.infer<
+  typeof screenshotFieldExtractionSchema
+>;
+
+export const clickyScreenshotExtractionSchema = z.object({
+  extractedText: z.string().trim().default(""),
+  selectedText: z.string().trim().nullable(),
+  title: z.string().trim().nullable(),
+  url: z.string().trim().nullable(),
+  authors: z.array(z.string().trim()).default([]),
+  abstract: z.string().trim().nullable(),
+  publicationDate: z.string().trim().nullable(),
+  model: z.string().trim().min(1),
+});
+export type ClickyScreenshotExtraction = z.infer<
+  typeof clickyScreenshotExtractionSchema
+>;
 
 export const noteKnowledgeSectionsSchema = z.object({
   keyFindings: z.string().trim().min(1),

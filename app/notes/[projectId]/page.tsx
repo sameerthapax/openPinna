@@ -25,7 +25,7 @@ export default async function ProjectCanvasPage({ params }: { params: Promise<{ 
         include: {
           notes: {
             orderBy: { createdAt: "desc" },
-            select: { id: true, noteText: true, noteSummary: true, source: { select: { title: true } } },
+            select: { id: true, selectedText: true, noteSummary: true, source: { select: { title: true } } },
           },
         },
       },
@@ -84,7 +84,7 @@ export default async function ProjectCanvasPage({ params }: { params: Promise<{ 
                         className="block h-[92px] overflow-hidden border border-[var(--border)] bg-[var(--surface)] px-3 py-2 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:translate-x-[2px] hover:bg-[var(--surface-soft)]"
                       >
                         <p className="truncate text-sm font-medium">{note.source?.title || "No source title"}</p>
-                        <p className="mt-1 line-clamp-2 text-xs text-[var(--muted-foreground)]">{note.noteSummary || note.noteText}</p>
+                        <p className="mt-1 line-clamp-2 text-xs text-[var(--muted-foreground)]">{note.noteSummary || note.selectedText}</p>
                       </Link>
                     ))
                   ) : (

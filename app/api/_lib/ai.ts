@@ -29,7 +29,7 @@ export function parseToolDirective(
 
 // Placeholder AI abstraction for MVP. Replace with real model calls when available.
 export async function generateAssistantReply(context: {
-  noteText: string;
+  selectedText: string;
   sourceTitle?: string | null;
   captureText?: string | null;
   threadSummary?: string | null;
@@ -43,7 +43,7 @@ export async function generateAssistantReply(context: {
   const snippets = [
     context.pinnaSystemPrompt ? `System: ${context.pinnaSystemPrompt}` : "",
     context.customInstructions ? `Instructions: ${context.customInstructions}` : "",
-    context.noteText,
+    context.selectedText,
     context.captureText || "",
     context.threadSummary || "",
     context.recentMessages.map((m) => `${m.role}: ${m.content}`).join("\n"),
