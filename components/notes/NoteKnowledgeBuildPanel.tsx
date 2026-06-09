@@ -106,9 +106,6 @@ export function NoteSelectedTextPanel({ selectedText }: { selectedText: string }
             <p className="font-mono-ui text-[10px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
               Selected text
             </p>
-            <p className="mt-2 max-w-[26ch] text-sm leading-6 text-[var(--muted-foreground)]">
-              Captured evidence stays visible beside the board and scrolls independently when the excerpt runs long.
-            </p>
           </div>
           <span className={notePillClass}>
             Evidence

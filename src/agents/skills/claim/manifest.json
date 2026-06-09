@@ -5,10 +5,6 @@
   "version": "1.0.0",
   "defaultModel": "gpt-4.1-mini",
   "requiresShell": false,
-  "allowedTools": [
-    "extract_claims",
-    "rewrite_claim_precisely",
-    "get_pinna_base_knowledge"
-  ],
+  "allowedTools": ["rewrite_claim_precisely"],
   "outputFormat": "json_object"
 }

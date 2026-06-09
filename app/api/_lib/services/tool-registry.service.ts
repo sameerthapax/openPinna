@@ -1,6 +1,10 @@
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getOpenAIClient } from "@/src/agents/openai/openai-client";
 import { listSkillDefinitions } from "@/src/agents/skills/skill-loader";
+import {
+  rewriteClaimPrecisely as rewriteClaimPreciselyWithOpenAI,
+} from "@/app/api/_lib/services/claim.service";
 import { z } from "zod";
 
 export type AgentType = "pinna" | "session" | "project";
@@ -14,6 +18,8 @@ type ToolContext = {
   selectedText?: string;
   sourceText?: string;
 };
+
+const PINNA_AGENT_DEBUG = process.env.PINNA_AGENT_DEBUG === "1";
 
 type ExecuteToolInput = {
   toolKey: string;
@@ -57,6 +63,11 @@ function textSnippet(value: unknown, max = 600) {
   return value.slice(0, max);
 }
 
+function toPlainObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
 function inferRelevanceToNote(selectedText: string, snippet: string) {
   const note = selectedText.trim();
   const excerpt = snippet.trim();
@@ -66,27 +77,91 @@ function inferRelevanceToNote(selectedText: string, snippet: string) {
   return `Compare this finding against the note focus: ${note.slice(0, 160)}`;
 }
 
-async function extractClaims(input: Record<string, unknown>) {
+async function rewriteClaimPrecisely(input: Record<string, unknown>, context: ToolContext) {
+  const oldClaim = textSnippet(input.oldClaim);
   const selectedText = textSnippet(input.selectedText);
-  const parts = selectedText
-    .split(/[\n\.\?!]/)
-    .map((segment) => segment.trim())
-    .filter(Boolean)
-    .slice(0, 3);
+  const additionalContext = textSnippet(input.additionalContext, 4000);
+
+  const result = await rewriteClaimPreciselyWithOpenAI({
+    oldClaim,
+    selectedText,
+    additionalContext,
+  });
+
+  let pinnaId: string | null = null;
+  let persisted = false;
+
+  if (context.threadId) {
+    try {
+      const thread = await db.chatThread.findUnique({
+        where: { id: context.threadId },
+        select: { pinnaId: true },
+      });
+
+      pinnaId = thread?.pinnaId || null;
+
+      if (pinnaId && result.rewrittenClaim.trim()) {
+        const pinna = await db.pinna.findUnique({
+          where: { id: pinnaId },
+          select: { remark: true },
+        });
+        const existingRemark = toPlainObject(pinna?.remark);
+        const now = new Date().toISOString();
+
+        await db.pinna.update({
+          where: { id: pinnaId },
+          data: {
+            remark: {
+              ...existingRemark,
+              claim: result.rewrittenClaim.trim(),
+              lastUpdatedByTool: "rewrite_claim_precisely",
+              lastUpdatedAt: now,
+            } as Prisma.InputJsonValue,
+          },
+        });
+
+        persisted = true;
+
+        if (PINNA_AGENT_DEBUG) {
+          console.log("[PINNA_TIMING]", {
+            step: "rewrite_claim_precisely_persisted",
+            threadId: context.threadId,
+            pinnaId,
+            claimLength: result.rewrittenClaim.trim().length,
+            persisted,
+          });
+        }
+      } else if (PINNA_AGENT_DEBUG) {
+        console.log("[PINNA_TIMING]", {
+          step: "rewrite_claim_precisely_persist_skipped",
+          threadId: context.threadId,
+          pinnaId,
+          claimLength: result.rewrittenClaim.trim().length,
+          persisted: false,
+        });
+      }
+    } catch (error) {
+      if (PINNA_AGENT_DEBUG) {
+        console.log("[PINNA_TIMING]", {
+          step: "rewrite_claim_precisely_persist_failed",
+          threadId: context.threadId,
+          pinnaId,
+          claimLength: result.rewrittenClaim.trim().length,
+          persisted: false,
+          error: error instanceof Error ? error.message : "Unknown persistence error.",
+        });
+      }
+    }
+  }
 
   return {
-    claims: parts.length ? parts : [selectedText || "No selected text provided."],
-    provider: "placeholder",
-  };
-}
-
-async function rewriteClaimPrecisely(input: Record<string, unknown>) {
-  const claim = textSnippet(input.claim);
-  return {
-    rewrittenClaim: claim
-      ? `Precise research claim: ${claim}`
-      : "Precise research claim unavailable.",
-    provider: "placeholder",
+    rewrittenClaim: result.rewrittenClaim,
+    currentClaim: result.rewrittenClaim,
+    reasoning: result.reasoning,
+    uncertainty: result.uncertainty,
+    provider: "openai",
+    persisted,
+    pinnaId,
   };
 }
 
@@ -371,7 +446,6 @@ async function extractPdfText(input: Record<string, unknown>) {
 }
 
 export const toolHandlers = {
-  extractClaims,
   rewriteClaimPrecisely,
   evaluateEvidenceStrength,
   findAssumptions,
@@ -534,6 +608,11 @@ export async function executeTool({ toolKey, input, context }: ExecuteToolInput)
   }
 
   const handlerName = tool.handlerName as ToolHandlerName;
+  console.log("[TOOL_EXECUTE]", {
+    toolKey,
+    handlerName: tool.handlerName,
+    input,
+  });
   const handler = toolHandlers[handlerName];
   if (!handler) {
     return {
@@ -543,7 +622,15 @@ export async function executeTool({ toolKey, input, context }: ExecuteToolInput)
   }
 
   try {
+    console.log("[TOOL_HANDLER_START]", {
+      handlerName,
+      context,
+    });
     const output = await handler(validation.data, context);
+    console.log("[TOOL_HANDLER_OUTPUT]", {
+      handlerName,
+      output,
+    });
     return {
       ok: true,
       output,

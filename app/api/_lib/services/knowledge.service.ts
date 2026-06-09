@@ -4,6 +4,7 @@ import { updateNoteSummary } from "@/app/api/_lib/services/note.service";
 import { ensurePinnaForThread } from "@/app/api/_lib/services/pinna-instance.service";
 import { updateProjectSummary } from "@/app/api/_lib/services/project.service";
 import { updateSessionSummary } from "@/app/api/_lib/services/session.service";
+import { filterVisibleThreadMessages } from "@/app/api/_lib/services/thread-message.service";
 import { Prisma } from "@prisma/client";
 
 export async function createKnowledgeEvent(input: {
@@ -184,7 +185,7 @@ export async function buildThreadKnowledgeSnapshot(threadId: string) {
   }
 
   const threadSummary = await summarizeText(
-    thread.messages.map((m) => `${m.role}: ${m.content}`),
+    filterVisibleThreadMessages(thread.messages).map((m) => `${m.role}: ${m.content}`),
     "Thread",
   );
 

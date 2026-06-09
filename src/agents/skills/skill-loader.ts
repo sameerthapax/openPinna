@@ -58,29 +58,118 @@ export function buildAllowedToolsSummary(allowedTools: ToolDescriptor[]) {
 }
 
 export function buildSkillRuntimeInstructions(
-  skill: PinnaSkillDefinition,
-  input: SkillPromptInput,
+    skill: PinnaSkillDefinition,
+    input: {
+      scope: string;
+      customInstructions?: string | null;
+      memorySummary?: string | null;
+      projectSummary?: string | null;
+      sessionSummary?: string | null;
+      sourceTitle?: string | null;
+      selectedText?: string | null;
+      currentClaim?: string | null;
+      threadSummary?: string | null;
+      allowedToolsSummary?: string | null;
+      recentMessages?: Array<{ role: string; content: string }>;
+      baseKnowledgeVersion?: {
+        version: number;
+        title?: string | null;
+        summary?: string | null;
+        keyFindings?: string | null;
+        userView?: string | null;
+        conclusion?: string | null;
+      } | null;
+    },
 ) {
-  const recentMessages = (input.recentMessages ?? [])
-    .slice(-5)
-    .map((message) => `${message.role}: ${message.content}`)
-    .join("\n");
+  const sections: string[] = [];
 
-  return buildPromptSections([
-    'Return json only. Use exactly this json object shape: {"internal":"hidden self-guidance or self-check","reply":"final user-facing reply"}.',
-    skill.runtimePrompt,
-    `${toScopedContextLabel(input.scope)}:`,
-    input.projectSummary ? `Project summary:\n${input.projectSummary}` : null,
-    input.sessionSummary ? `Session summary:\n${input.sessionSummary}` : null,
-    input.sourceTitle ? `Source title: ${input.sourceTitle}` : null,
-    input.selectedText ? `Selected text:\n${input.selectedText}` : null,
-    input.threadSummary ? `Thread summary:\n${input.threadSummary}` : null,
-    input.memorySummary ? `Memory summary:\n${input.memorySummary}` : null,
-    input.customInstructions ? `Thread instructions:\n${input.customInstructions}` : null,
-    input.allowedToolsSummary ?? "Allowed tools: none",
-    recentMessages ? `Recent messages:\n${recentMessages}` : null,
-    "Tool and safety rules: use only the approved tools, never assume shell access unless the runtime exposes it, and prefer zero tool calls when the answer is already in the provided context.",
-  ]);
+  sections.push(
+      `You are the "${skill.displayName}" pinna agent.`,
+  );
+
+  sections.push(
+      `Skill Key: ${skill.key}`,
+  );
+
+  sections.push(
+      `Scope: ${skill.scope}`,
+  );
+
+  if (skill.runtimePrompt?.trim()) {
+    sections.push(skill.runtimePrompt.trim());
+  }
+
+  if (input.customInstructions?.trim()) {
+    sections.push(
+        `Custom Instructions:\n${input.customInstructions.trim()}`,
+    );
+  }
+
+  if (input.currentClaim?.trim()) {
+    sections.push(
+        `Current Claim:\n${input.currentClaim.trim()}`,
+    );
+  }
+
+  if (input.baseKnowledgeVersion) {
+    const base = input.baseKnowledgeVersion;
+
+    sections.push(
+        [
+          "Base Knowledge Version",
+          `Version: ${base.version}`,
+          `Title: ${base.title || "Untitled"}`,
+          `Summary: ${base.summary || "None"}`,
+          `Key Findings: ${base.keyFindings || "None"}`,
+          `User View: ${base.userView || "None"}`,
+          `Conclusion: ${base.conclusion || "None"}`,
+        ].join("\n"),
+    );
+  }
+
+  if (input.memorySummary?.trim()) {
+    sections.push(
+        `Memory Summary:\n${input.memorySummary.trim()}`,
+    );
+  }
+
+  if (input.projectSummary?.trim()) {
+    sections.push(
+        `Project Summary:\n${input.projectSummary.trim()}`,
+    );
+  }
+
+  if (input.sessionSummary?.trim()) {
+    sections.push(
+        `Session Summary:\n${input.sessionSummary.trim()}`,
+    );
+  }
+
+  if (input.threadSummary?.trim()) {
+    sections.push(
+        `Thread Summary:\n${input.threadSummary.trim()}`,
+    );
+  }
+
+  if (input.sourceTitle?.trim()) {
+    sections.push(
+        `Source Title:\n${input.sourceTitle.trim()}`,
+    );
+  }
+
+  if (input.selectedText?.trim()) {
+    sections.push(
+        `Selected Text:\n${input.selectedText.trim()}`,
+    );
+  }
+
+  if (input.allowedToolsSummary?.trim()) {
+    sections.push(
+        `Allowed Tools:\n${input.allowedToolsSummary.trim()}`,
+    );
+  }
+
+  return sections.join("\n\n---\n\n");
 }
 
 export async function loadSkillDefinition(skillKey: string): Promise<PinnaSkillDefinition> {

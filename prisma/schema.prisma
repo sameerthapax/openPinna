@@ -487,6 +487,7 @@ model Pinna {
   noteId                         String                    @map("note_id") @db.Uuid
   pinnaTemplateId                String?                   @map("pinna_template_id") @db.Uuid
   selectedBaseKnowledgeVersionId String?                   @map("selected_base_knowledge_version_id") @db.Uuid
+  remark                         Json                       @default("{}")
   title                          String?
   status                         String                    @default("active")
   agentMode                      String?                   @map("agent_mode")

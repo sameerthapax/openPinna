@@ -2,6 +2,36 @@
 
 ## Problem
 
+Pinna chat streaming was wired in, but the backend build failed while the OpenAI Responses streaming helper and SSE route were being typed. The frontend send flow also needed to reconcile streamed deltas with the persisted message snapshot.
+
+## Suspected Cause
+
+- The Responses SDK overloads returned a union that TypeScript could not narrow automatically across the shared stream/create helper.
+- The stream completion payload needed a separate persisted-message shape from the existing `AgentRunResult`.
+- The note chat UI still assumed a single JSON response instead of a streamed event sequence.
+
+## Files Touched
+
+- `src/agents/openai/responses-agent-runner.ts`
+- `src/agents/core/agent-orchestrator.ts`
+- `app/api/threads/[threadId]/runs/route.ts`
+- `components/notes/NotePinnaBoard.tsx`
+- `src/agents/core/agent-types.ts`
+
+## Fix Attempted
+
+- Split the OpenAI request body into a shared create/stream shape and cast only at the stream boundary.
+- Kept the existing turn orchestrator, but added a stream sink for delta/tool/completion events.
+- Returned a final completion event with the persisted message snapshot so the frontend could reconcile optimistic messages.
+- Swapped the note chat send flow to the `/runs` endpoint with `stream: true` and a simple SSE reader.
+
+## Final Result
+
+- Pinna chat now streams assistant text from backend to frontend while preserving the existing non-streaming `/messages` path.
+- The production build passes after the streaming changes.
+
+## Problem
+
 The browser extension overlay, popup, and options page each handled settings too locally. The overlay toggle, close action, theme switch, auto-selected text behavior, and keyboard shortcut were not all backed by the same persisted settings source.
 
 ## Suspected Cause
@@ -218,6 +248,58 @@ Settings were being read once on mount and then mutated in isolated UI state. Th
 - `app/api/notes/[noteId]/route.ts`
 - `extension/src/background/service-worker.ts`
 - `extension/src/lib/types.ts`
+
+## New Issue
+
+- Claim Pinna was still using placeholder claim tools and re-extracting on every turn.
+- Prisma migration creation failed because the sandbox could not reach the local Postgres instance, even though the Docker stack was already started on the host.
+- The first typecheck after the refactor failed because the note query used `capture` without including the relation, and the skill sync cleanup referenced a stale variable in the wrong scope.
+
+## Suspected Cause
+
+- The claim flow had been split across the skill prompt, agent catalog, tool registry, and thread bootstrap path, so the old extraction behavior was still leaking through multiple layers.
+- The local database port used by Prisma in this sandbox was not reachable, which blocked `prisma migrate dev --create-only`.
+- The skill sync code had one stale cleanup block that was attached to the wrong loop after the tool catalog rewrite.
+
+## Files Touched
+
+- `app/api/_lib/services/claim.service.ts`
+- `app/api/_lib/services/chat.service.ts`
+- `app/api/_lib/services/tool-registry.service.ts`
+- `app/api/_lib/services/thread-message.service.ts`
+- `app/api/_lib/services/pinna-instance.service.ts`
+- `app/api/_lib/services/knowledge.service.ts`
+- `app/api/_lib/workers/index.ts`
+- `components/navigation/GlobalNavControls.tsx`
+- `app/notes/[projectId]/sessions/[sessionId]/notes/[noteId]/page.tsx`
+- `prisma/schema.prisma`
+- `prisma/migrations/20260608050000_add_pinna_remark/migration.sql`
+- `src/agents/core/agent-catalog.ts`
+- `src/agents/core/agent-factory.ts`
+- `src/agents/core/agent-orchestrator.ts`
+- `src/agents/core/agent-types.ts`
+- `src/agents/skills/claim/SKILL.md`
+- `src/agents/skills/claim/manifest.json`
+- `src/agents/skills/claim/runtime.md`
+- `src/agents/skills/skill-db-sync.ts`
+- `src/agents/skills/skill-loader.ts`
+
+## Fix Attempted
+
+- Added `Pinna.remark` as a JSON field and stored `{ claim: ... }` when a Claim Pinna is created.
+- Moved the initial claim extraction into a dedicated backend OpenAI Responses API helper.
+- Removed `extract_claims` from the live claim tool surface and kept only `rewrite_claim_precisely`.
+- Rewrote the Claim Pinna runtime prompt to act like a research assistant that refines an existing claim instead of re-extracting on every turn.
+- Re-enabled active tools and skills during filesystem-to-DB sync so the catalog state stays in sync with the filesystem.
+- Regenerated the Prisma client and created the migration SQL from Prisma diff output when the database could not be reached directly.
+- Fixed the missing note relation include and moved stale skill-tool cleanup back onto the skill sync loop.
+
+## Final Result
+
+- `npm run typecheck` passed.
+- `npm run lint` passed with pre-existing warnings in unrelated files.
+- The migration artifact was removed after the repo rule clarification, so no manual migration file remains in the tree.
+- The only unresolved limitation was environmental: Prisma migration dev could not connect to the local Postgres port from the sandbox, so migration generation remained blocked inside the sandbox.
 - `extension/src/content/OverlayApp.tsx`
 
 ## Fix Attempted

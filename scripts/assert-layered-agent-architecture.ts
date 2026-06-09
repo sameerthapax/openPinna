@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { shouldAttachShellTool } from "@/src/agents/openai/responses-agent-runner";
+import {
+  RECENT_MESSAGE_LIMIT,
+  shouldAttachShellTool,
+} from "@/src/agents/openai/responses-agent-runner";
 import {
   buildSkillRuntimeInstructions,
   loadSkillDefinition,
@@ -50,8 +53,9 @@ async function assertMissingRuntimeFails() {
 async function main() {
   const claim = await loadSkillDefinition("claim");
   assert.equal(claim.manifest.key, "claim");
+  assert.equal(claim.displayName, "Claim Pinna");
   assert.equal(claim.requiresShell, false);
-  assert.ok(claim.runtimePrompt.includes("Claim Pinna"));
+  assert.ok(claim.runtimePrompt.includes("Return JSON only"));
 
   const deepResearch = await loadSkillDefinition("deep-research");
   assert.equal(
@@ -92,12 +96,25 @@ async function main() {
 
   const instructions = buildSkillRuntimeInstructions(claim, {
     scope: "NOTE",
+    currentClaim: "The note argues for a tighter claim.",
+    baseKnowledgeVersion: {
+      version: 3,
+      title: "Base knowledge",
+      summary: "Short summary.",
+      keyFindings: "Key finding.",
+      userView: "User view.",
+      conclusion: "Conclusion.",
+    },
     selectedText: "Selected sentence.",
     threadSummary: "Short summary.",
     allowedToolsSummary: "Allowed tools: extract_claims",
     recentMessages: [{ role: "user", content: "What is the selected text?" }],
   });
-  assert.ok(instructions.includes("Selected text"));
+  assert.equal(RECENT_MESSAGE_LIMIT, 3);
+  assert.ok(instructions.includes("Current Claim"));
+  assert.ok(instructions.includes("Base Knowledge Version"));
+  assert.ok(instructions.includes("Version: 3"));
+  assert.ok(instructions.includes("Selected Text"));
   assert.ok(instructions.includes("Allowed tools: extract_claims"));
 
   await assertMissingRuntimeFails();

@@ -23,6 +23,7 @@ type PinnaSeed = {
   threadId: string;
   question: string;
   title?: string | null;
+  currentClaim?: string | null;
   baseVersion?: {
     id: string;
     version: number;
@@ -39,6 +40,7 @@ type PinnaNode = {
   x: number;
   y: number;
   title?: string | null;
+  currentClaim?: string | null;
   baseVersion?: {
     id: string;
     version: number;
@@ -93,6 +95,78 @@ type CaptureArtifact = {
   fileName: string | null;
   artifactType: "screenshot" | "pdf";
 };
+
+type PinnaStreamEvent =
+  | {
+      type: "run.started";
+      threadId: string;
+      userMessageLength: number;
+    }
+  | {
+      type: "assistant.delta";
+      delta: string;
+      responseId?: string;
+      iteration: number;
+    }
+  | {
+      type: "tool.started";
+      toolKey: string;
+      toolCallId: string;
+      iteration: number;
+    }
+  | {
+      type: "tool.completed";
+      toolKey: string;
+      toolCallId: string;
+      iteration: number;
+      status: "completed" | "failed" | "denied";
+    }
+  | {
+      type: "run.completed";
+      run: {
+        assistantMessage: string;
+        updatedCurrentClaim?: string | null;
+        toolCalls: Array<{
+          id: string;
+          toolKey: string;
+          input?: Record<string, unknown>;
+          status: "completed" | "failed" | "denied";
+          output?: unknown;
+          error?: string;
+        }>;
+        memoryWrites: Array<{
+          ok: boolean;
+          operation: string;
+          degraded: boolean;
+          detail?: string;
+        }>;
+      };
+      assistantMessage: {
+        id: string;
+        threadId: string;
+        role: string;
+        content: string;
+        createdAt: string;
+      };
+      userMessage: {
+        id: string;
+        threadId: string;
+        role: string;
+        content: string;
+        createdAt: string;
+      };
+      messages: Array<{
+        id: string;
+        threadId: string;
+        role: string;
+        content: string;
+        createdAt: string;
+      }>;
+    }
+  | {
+      type: "run.error";
+      message: string;
+    };
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -163,11 +237,74 @@ function renderChatMessageContent(content: string) {
   });
 }
 
+function parseSseEventBlock(block: string): PinnaStreamEvent | null {
+  let eventType = "";
+  const dataLines: string[] = [];
+
+  for (const line of block.split(/\r?\n/)) {
+    if (line.startsWith("event:")) {
+      eventType = line.slice(6).trim();
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).trimStart());
+    }
+  }
+
+  if (!eventType || dataLines.length === 0) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(dataLines.join("\n")) as PinnaStreamEvent;
+  } catch {
+    return null;
+  }
+}
+
+async function readPinnaStream(
+  response: Response,
+  onEvent: (event: PinnaStreamEvent) => void,
+) {
+  if (!response.body) {
+    throw new Error("Streaming response body is missing.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    let delimiterIndex = buffer.indexOf("\n\n");
+    while (delimiterIndex >= 0) {
+      const block = buffer.slice(0, delimiterIndex);
+      buffer = buffer.slice(delimiterIndex + 2);
+      const event = parseSseEventBlock(block);
+      if (event) {
+        onEvent(event);
+      }
+      delimiterIndex = buffer.indexOf("\n\n");
+    }
+  }
+
+  const trailing = buffer.trim();
+  if (trailing) {
+    const event = parseSseEventBlock(trailing);
+    if (event) {
+      onEvent(event);
+    }
+  }
+}
+
 export function NotePinnaBoard({
   noteId,
   noteTitle,
   noteOpinion,
   noteSummary,
+  selectedText,
   knowledgeSections,
   sourceDetails,
   voiceRecording,
@@ -179,6 +316,7 @@ export function NotePinnaBoard({
   noteTitle: string;
   noteOpinion: string;
   noteSummary: string;
+  selectedText: string;
   knowledgeSections: KnowledgeSections | null;
   sourceDetails: SourceDetails;
   voiceRecording: VoiceRecording | null;
@@ -206,6 +344,7 @@ export function NotePinnaBoard({
   const hasHydratedRef = useRef(false);
   const chatScrollerRef = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = useRef(false);
+  const pendingAssistantMessageContentRef = useRef("");
   const sceneWidth = boardSize.width > 0 ? boardSize.width / zoom : 0;
   const sceneHeight = boardSize.height > 0 ? boardSize.height / zoom : 0;
   const nodeWidth = Math.min(360, Math.max(240, sceneWidth * 0.18));
@@ -226,6 +365,7 @@ export function NotePinnaBoard({
           threadId: pinna.threadId,
           question: pinna.title || pinna.question,
           title: pinna.title,
+          currentClaim: pinna.currentClaim || null,
           baseVersion: pinna.baseVersion || null,
           x: existing?.x ?? saved?.x ?? 60 + index * 48,
           y: existing?.y ?? saved?.y ?? 48 + index * 42,
@@ -288,6 +428,7 @@ export function NotePinnaBoard({
           threadId: string;
           threadType?: string;
           title?: string | null;
+          currentClaim?: string | null;
           baseVersion?: { id: string; version: number; title: string | null } | null;
           messages?: Array<{ id: string; role: string; content: string }>;
         };
@@ -306,6 +447,7 @@ export function NotePinnaBoard({
                   threadId: pinna.threadId,
                   question,
                   title: pinna.title || question,
+                  currentClaim: pinna.currentClaim|| entry.currentClaim || null,
                   baseVersion: pinna.baseVersion || null,
                   messages: pinna.messages || entry.messages,
                 }
@@ -325,6 +467,7 @@ export function NotePinnaBoard({
             threadId: pinna.threadId,
             question,
             title: pinna.title || question,
+            currentClaim: pinna.currentClaim || null,
             baseVersion: pinna.baseVersion || null,
             x: Math.max(24, cx - nodeWidth / 2),
             y: Math.max(24, cy - nodeHeight / 2),
@@ -806,6 +949,21 @@ export function NotePinnaBoard({
                         </div>
                       </div>
                     ) : null}
+                    {activeNode.currentClaim ? (
+                      <div
+                        className={cn(
+                          "max-w-[78%] whitespace-pre-wrap break-words rounded-[28px] px-5 py-3 text-sm leading-7 sm:px-6 sm:text-[15px]",
+                          isDarkTheme
+                            ? "mr-auto border border-[rgba(170,210,186,0.16)] bg-[linear-gradient(180deg,rgba(24,34,26,0.98),rgba(18,26,20,0.96))] text-[rgba(221,244,228,0.96)] shadow-[0_18px_32px_-28px_rgba(0,0,0,0.74)]"
+                            : "mr-auto border border-[rgba(145,170,192,0.14)] bg-[linear-gradient(180deg,rgba(236,247,240,0.98),rgba(224,239,229,0.96))] text-[color:#345441] shadow-[0_18px_36px_-28px_rgba(93,127,156,0.18)]",
+                        )}
+                      >
+                        <p className="mb-2 font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
+                          Current claim
+                        </p>
+                        {renderChatMessageContent(activeNode.currentClaim)}
+                      </div>
+                    ) : null}
                     {activeNode.messages.map((message) => (
                       <div
                         key={message.id}
@@ -873,8 +1031,11 @@ export function NotePinnaBoard({
                       onClick={async () => {
                         const messagePayload = draftMessage.replace(/\r\n/g, "\n").trimEnd();
                         if (!messagePayload.trim()) return;
+                        const userMessageId = uid();
+                        const assistantPlaceholderId = uid();
                         setSending(true);
                         shouldStickToBottomRef.current = true;
+                        pendingAssistantMessageContentRef.current = "";
                         setNodes((current) =>
                           current.map((node) =>
                             node.id === activeNode.id
@@ -883,9 +1044,15 @@ export function NotePinnaBoard({
                                   messages: [
                                     ...node.messages,
                                     {
-                                      id: uid(),
+                                      id: userMessageId,
                                       role: "user",
                                       content: messagePayload,
+                                      createdAt: new Date().toISOString(),
+                                    },
+                                    {
+                                      id: assistantPlaceholderId,
+                                      role: "assistant",
+                                      content: "Thinking...",
                                       createdAt: new Date().toISOString(),
                                     },
                                   ],
@@ -897,57 +1064,170 @@ export function NotePinnaBoard({
                         requestAnimationFrame(resizeComposer);
 
                         try {
-                          const response = await fetch(`/api/threads/${activeNode.threadId}/messages`, {
+                          const response = await fetch(`/api/threads/${activeNode.threadId}/runs`, {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ userMessage: messagePayload }),
+                            body: JSON.stringify({ userMessage: messagePayload, stream: true }),
                           });
-                          const payload = await response.json();
-                          const assistantContent = payload?.assistantMessage?.content
-                            || (response.ok
-                              ? "Response completed."
-                              : payload?.message || "Pinna response failed.");
+                          const contentType = response.headers.get("content-type") || "";
 
-                          setNodes((current) =>
-                            current.map((node) =>
-                              node.id === activeNode.id
-                                ? {
-                                    ...node,
-                                    messages: [
-                                      ...node.messages,
-                                      {
-                                        id: payload?.assistantMessage?.id || uid(),
-                                        role: "assistant",
-                                        content: assistantContent,
-                                        createdAt:
-                                          payload?.assistantMessage?.createdAt ||
-                                          new Date().toISOString(),
+                          if (!response.ok) {
+                            const payload = await response.json().catch(() => null);
+                            throw new Error(payload?.message || "Pinna response failed.");
+                          }
+
+                          if (contentType.includes("text/event-stream")) {
+                            await readPinnaStream(response, (event) => {
+                              if (event.type === "assistant.delta") {
+                                pendingAssistantMessageContentRef.current += event.delta;
+                                const currentContent = pendingAssistantMessageContentRef.current;
+
+                                setNodes((current) =>
+                                  current.map((node) =>
+                                    node.id === activeNode.id
+                                      ? {
+                                          ...node,
+                                          messages: node.messages.map((message) =>
+                                            message.id === assistantPlaceholderId
+                                              ? { ...message, content: currentContent }
+                                              : message,
+                                          ),
+                                        }
+                                      : node,
+                                  ),
+                                );
+                                return;
+                              }
+
+                              if (event.type === "run.completed") {
+                                const updatedCurrentClaim =
+                                  typeof event.run.updatedCurrentClaim === "string" &&
+                                  event.run.updatedCurrentClaim.trim()
+                                    ? event.run.updatedCurrentClaim.trim()
+                                    : null;
+                                pendingAssistantMessageContentRef.current = "";
+                                setNodes((current) =>
+                                  current.map((node) =>
+                                    node.id === activeNode.id
+                                      ? {
+                                          ...node,
+                                          currentClaim: updatedCurrentClaim || node.currentClaim,
+                                          messages: event.messages,
+                                        }
+                                      : node,
+                                  ),
+                                );
+                                if (updatedCurrentClaim) {
+                                  window.dispatchEvent(
+                                    new CustomEvent("pinna-claim-updated", {
+                                      detail: {
+                                        pinnaId: activeNode.id,
+                                        currentClaim: updatedCurrentClaim,
                                       },
-                                    ],
-                                  }
-                                : node,
-                            ),
-                          );
+                                    }),
+                                  );
+                                }
+                                return;
+                              }
+
+                              if (event.type === "run.error") {
+                                const currentContent = pendingAssistantMessageContentRef.current.trim();
+                                const errorContent = currentContent
+                                  ? `${currentContent}\n\n${event.message}`
+                                  : event.message;
+
+                                setNodes((current) =>
+                                  current.map((node) =>
+                                    node.id === activeNode.id
+                                      ? {
+                                          ...node,
+                                          messages: node.messages.map((message) =>
+                                            message.id === assistantPlaceholderId
+                                              ? { ...message, content: errorContent }
+                                              : message,
+                                          ),
+                                        }
+                                      : node,
+                                  ),
+                                );
+                              }
+                            });
+                          } else {
+                            const payload = await response.json().catch(() => null);
+                            const assistantContent =
+                              payload?.run?.assistantMessage ||
+                              payload?.assistantMessage?.content ||
+                              payload?.message ||
+                              "Response completed.";
+                            const updatedCurrentClaim =
+                              typeof payload?.updatedCurrentClaim === "string" &&
+                              payload.updatedCurrentClaim.trim()
+                                ? payload.updatedCurrentClaim.trim()
+                                : typeof payload?.run?.updatedCurrentClaim === "string" &&
+                                    payload.run.updatedCurrentClaim.trim()
+                                  ? payload.run.updatedCurrentClaim.trim()
+                                : typeof payload?.currentClaim === "string" &&
+                                    payload.currentClaim.trim()
+                                  ? payload.currentClaim.trim()
+                                  : null;
+
+                            setNodes((current) =>
+                              current.map((node) =>
+                                node.id === activeNode.id
+                                  ? {
+                                      ...node,
+                                      currentClaim: updatedCurrentClaim || node.currentClaim,
+                                      messages: node.messages.map((message) =>
+                                        message.id === assistantPlaceholderId
+                                      ? {
+                                              ...message,
+                                              id:
+                                                payload?.assistantMessage?.id ||
+                                                message.id,
+                                              content: assistantContent,
+                                              createdAt:
+                                                payload?.assistantMessage?.createdAt ||
+                                                message.createdAt,
+                                            }
+                                        : message,
+                                      ),
+                                    }
+                                  : node,
+                              ),
+                            );
+                            if (updatedCurrentClaim) {
+                              window.dispatchEvent(
+                                new CustomEvent("pinna-claim-updated", {
+                                  detail: {
+                                    pinnaId: activeNode.id,
+                                    currentClaim: updatedCurrentClaim,
+                                  },
+                                }),
+                              );
+                            }
+                          }
                         } catch {
                           setNodes((current) =>
                             current.map((node) =>
                               node.id === activeNode.id
                                 ? {
                                     ...node,
-                                    messages: [
-                                      ...node.messages,
-                                      {
-                                        id: uid(),
-                                        role: "assistant",
-                                        content: "Network error while sending to pinna.",
-                                        createdAt: new Date().toISOString(),
-                                      },
-                                    ],
+                                    messages: node.messages.map((message) =>
+                                      message.id === assistantPlaceholderId
+                                        ? {
+                                            ...message,
+                                            content:
+                                              pendingAssistantMessageContentRef.current.trim() ||
+                                              "Network error while sending to pinna.",
+                                          }
+                                        : message,
+                                    ),
                                   }
                                 : node,
                             ),
                           );
                         } finally {
+                          pendingAssistantMessageContentRef.current = "";
                           setSending(false);
                         }
                       }}
@@ -963,12 +1243,22 @@ export function NotePinnaBoard({
                   <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">Context spine</p>
                   <h4 className="mt-2 text-lg font-semibold tracking-[-0.02em]">Live note context</h4>
                   <div className="mt-4 space-y-3 text-sm leading-7 text-[var(--muted-foreground)]">
+                    {activeNode.currentClaim ? (
+                      <div className={cn(noteMiniCardClass, "rounded-[24px] p-5")}>
+                        <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
+                          Current claim
+                        </p>
+                        <p className="mt-2 text-[var(--foreground)]">
+                          {activeNode.currentClaim}
+                        </p>
+                      </div>
+                    ) : null}
                     <div className={cn(noteMiniCardClass, "rounded-[24px] p-5")}>
                       <p className="font-mono-ui text-[10px] uppercase tracking-[0.16em] text-[var(--muted-foreground)]">
-                        Summary
+                        Selected text
                       </p>
                       <p className="mt-2 text-[var(--foreground)]">
-                        {noteSummary || "Knowledge summary is still being prepared."}
+                        {selectedText || "No selected text captured yet."}
                       </p>
                     </div>
                     {knowledgeSections ? (

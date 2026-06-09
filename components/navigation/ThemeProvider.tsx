@@ -29,14 +29,22 @@ function applyTheme(theme: ThemeMode) {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<ThemeMode>(() => readPreferredTheme());
+  const [theme, setTheme] = useState<ThemeMode>("light");
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
+    setTheme(readPreferredTheme());
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
     applyTheme(theme);
     window.localStorage.setItem("openpinna-theme", theme);
-  }, [theme]);
+  }, [hydrated, theme]);
 
   useEffect(() => {
+    if (!hydrated) return;
     const media = window.matchMedia("(prefers-color-scheme: dark)");
 
     function handleSystemChange() {
@@ -59,7 +67,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       media.removeEventListener("change", handleSystemChange);
       window.removeEventListener("storage", handleStorage);
     };
-  }, []);
+  }, [hydrated]);
 
   return (
     <ThemeContext.Provider

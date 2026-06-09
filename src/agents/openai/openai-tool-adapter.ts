@@ -32,6 +32,12 @@ export async function executeToolCallForPinna(input: {
       status: "pending",
     },
   });
+  console.log("[TOOL_ADAPTER_INPUT]", {
+    threadId: input.threadId,
+    messageId: input.messageId,
+    toolKey: input.directive.toolKey,
+    input: input.directive.input,
+  });
 
   try {
     await validateToolAllowed({
@@ -40,6 +46,11 @@ export async function executeToolCallForPinna(input: {
       skillKey: input.skillKey,
       toolKey: input.directive.toolKey,
       requiredScope: "NOTE",
+    });
+    console.log("[TOOL_ALLOWED]", {
+      toolKey: input.directive.toolKey,
+      pinnaTemplateKey: input.pinnaTemplateKey,
+      skillKey: input.skillKey,
     });
 
     const execution = await executeTool({

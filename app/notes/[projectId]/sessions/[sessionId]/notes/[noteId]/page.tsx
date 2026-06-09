@@ -129,6 +129,7 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
             noteTitle={noteTitle}
             noteOpinion={noteOpinion}
             noteSummary={noteKnowledge?.summary || note.noteSummary || ""}
+            selectedText={selectedText}
             knowledgeSections={
               noteKnowledge
                 ? {
@@ -190,6 +191,13 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
                   primaryThread?.threadType ||
                   "Pinna",
                 title: pinna.title || primaryThread?.title,
+                currentClaim:
+                  typeof pinna.remark === "object" &&
+                  pinna.remark !== null &&
+                  !Array.isArray(pinna.remark) &&
+                  typeof (pinna.remark as { claim?: unknown }).claim === "string"
+                    ? ((pinna.remark as { claim: string }).claim || null)
+                    : null,
                 baseVersion:
                   pinna.selectedBaseKnowledgeVersion != null
                     ? {
@@ -208,7 +216,7 @@ export default async function NoteResearchPage({ params }: { params: Promise<{ p
                     content: message.content,
                     createdAt: message.createdAt.toISOString(),
                   })) || [],
-                hasOlderMessages: (primaryThread?._count.messages || 0) > (primaryThread?.messages.length || 0),
+                hasOlderMessages: (primaryThread?._count.messages || 0) > 100,
               };
             })}
             initialLayout={

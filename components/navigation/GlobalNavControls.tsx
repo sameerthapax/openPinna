@@ -194,6 +194,23 @@ export function GlobalNavControls() {
       });
       const payload = await response.json();
       if (!response.ok || !payload?.ok || !payload?.pinna || !payload?.thread) return;
+      const currentClaim =
+        typeof payload?.pinna?.remark === "object" &&
+        payload.pinna.remark !== null &&
+        !Array.isArray(payload.pinna.remark) &&
+        typeof (payload.pinna.remark as { claim?: unknown }).claim === "string"
+          ? (payload.pinna.remark as { claim: string }).claim
+          : null;
+      const messages = Array.isArray(payload.thread.messages)
+        ? payload.thread.messages
+            .filter((message: { role?: string }) => message?.role === "user" || message?.role === "assistant")
+            .map((message: { id: string; role: string; content: string; createdAt?: string }) => ({
+              id: message.id,
+              role: message.role,
+              content: message.content,
+              createdAt: message.createdAt,
+            }))
+        : [];
       window.dispatchEvent(
         new CustomEvent("add-pinna", {
           detail: {
@@ -202,6 +219,7 @@ export function GlobalNavControls() {
               threadId: payload.thread.id,
               threadType: payload.thread.threadType,
               title: payload.pinna.title || payload.thread.title,
+              currentClaim,
               baseVersion: payload.baseVersion
                 ? {
                     id: payload.baseVersion.id,
@@ -209,7 +227,7 @@ export function GlobalNavControls() {
                     title: payload.baseVersion.title,
                   }
                 : null,
-              messages: [],
+              messages,
             },
           },
         }),

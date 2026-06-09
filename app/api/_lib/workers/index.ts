@@ -19,13 +19,27 @@ import {
 import { summarizeText } from "@/app/api/_lib/ai";
 import { pinnaObserverDefinition } from "@/src/agents/observer/pinna-observer";
 import { ensurePinnaForThread } from "@/app/api/_lib/services/pinna-instance.service";
+import { filterVisibleThreadMessages } from "@/app/api/_lib/services/thread-message.service";
+import { Mem0MemoryProvider } from "@/src/agents/memory/mem0-provider";
+import type { MemoryProviderContext } from "@/src/agents/memory/memory-provider";
 
 const connection = { url: process.env.REDIS_URL };
 const OBSERVER_BATCH_SIZE = 30;
 const OBSERVER_BATCH_ROLE_TARGET = 15;
+const PINNA_AGENT_DEBUG = process.env.PINNA_AGENT_DEBUG === "1";
 
 type QueueJob<TData extends Record<string, unknown>> = {
   data: TData;
+  name: string;
+};
+
+type ThreadMemoryQueueJobData = {
+  threadId: string;
+  rebuildKnowledgeSnapshot?: boolean;
+  runKnowledgeChain?: boolean;
+  memoryContext?: MemoryProviderContext;
+  userMessage?: string;
+  assistantMessage?: string;
 };
 
 type ThreadMessage = {
@@ -103,19 +117,58 @@ function getObserverBatchWindow(
 new Worker(
   "threadMemoryQueue",
   async (
-    job: QueueJob<{
-      threadId: string;
-      rebuildKnowledgeSnapshot?: boolean;
-      runKnowledgeChain?: boolean;
-    }>,
+    job: QueueJob<ThreadMemoryQueueJobData>,
   ) => {
+    if (job.name === "thread-memory-append") {
+      const startedAt = Date.now();
+      const memoryProvider = new Mem0MemoryProvider();
+      if (!job.data.memoryContext || !job.data.userMessage || !job.data.assistantMessage) {
+        console.error("[PINNA_TIMING]", {
+          step: "memory_append_write_failed",
+          threadId: job.data.threadId,
+          detail: "Missing memory append payload.",
+        });
+        return;
+      }
+
+      const memoryWrite = await memoryProvider.appendTurn({
+        context: job.data.memoryContext,
+        userMessage: job.data.userMessage,
+        assistantMessage: job.data.assistantMessage,
+      });
+
+      if (PINNA_AGENT_DEBUG) {
+        console.log("[PINNA_TIMING]", {
+          step: "memory_append_write",
+          ms: Date.now() - startedAt,
+          threadId: job.data.threadId,
+          memoryNamespace: job.data.memoryContext.namespace,
+          userMessageLength: job.data.userMessage.length,
+          assistantLength: job.data.assistantMessage.length,
+          ok: memoryWrite.ok,
+          degraded: memoryWrite.degraded,
+        });
+      }
+
+      if (!memoryWrite.ok) {
+        console.error("[PINNA_TIMING]", {
+          step: "memory_append_write_failed",
+          threadId: job.data.threadId,
+          detail: memoryWrite.detail || "Mem0 append failed.",
+        });
+      }
+
+      return;
+    }
+
     const thread = await db.chatThread.findUnique({
       where: { id: job.data.threadId },
       include: { messages: { orderBy: { createdAt: "asc" } }, note: true, pinna: true },
     });
     if (!thread) return;
 
-    const messageLines = thread.messages.map((m) => `${m.role}: ${m.content}`);
+    const visibleMessages = filterVisibleThreadMessages(thread.messages);
+    const messageLines = visibleMessages.map((m) => `${m.role}: ${m.content}`);
     const summary = await summarizeText(messageLines, "Thread");
     await db.chatThread.update({ where: { id: thread.id }, data: { summary } });
 
@@ -172,7 +225,7 @@ new Worker(
       : null;
 
     const observerBatch = getObserverBatchWindow(
-      thread.messages.map((message) => ({
+      visibleMessages.map((message) => ({
         id: message.id,
         role: message.role,
         content: message.content,
@@ -314,7 +367,7 @@ new Worker(
     });
 
     const observerBatch = getObserverBatchWindow(
-      thread.messages.map((message) => ({
+      filterVisibleThreadMessages(thread.messages).map((message) => ({
         id: message.id,
         role: message.role,
         content: message.content,
@@ -339,7 +392,7 @@ new Worker(
       threadSummary: thread.summary || null,
       previousWindowSummary: observerBatch.previousWindowSummary,
       recentMessages,
-      messageCount: thread.messages.length,
+      messageCount: filterVisibleThreadMessages(thread.messages).length,
     });
 
     const shouldRebuildKnowledge = observerDecision.shouldRebuildKnowledge;

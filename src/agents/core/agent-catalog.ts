@@ -25,29 +25,30 @@ export type PinnaTemplateCatalogEntry = {
 
 export const agentToolCatalog: AgentToolCatalogEntry[] = [
   {
-    key: "extract_claims",
-    displayName: "Extract Claims",
-    description: "Extract precise claims from the current note.",
-    scope: "NOTE",
-    requiresShell: false,
-    handlerName: "extractClaims",
-    schemaJson: {
-      type: "object",
-      properties: { selectedText: { type: "string" } },
-      required: ["selectedText"],
-    },
-  },
-  {
     key: "rewrite_claim_precisely",
     displayName: "Rewrite Claim Precisely",
-    description: "Rewrite a claim into precise research language.",
+    description:
+      "Rewrite the current claim only when the claim really needs revision. Use the old claim, selected text, and additional context to keep the result grounded and specific.",
     scope: "NOTE",
     requiresShell: false,
     handlerName: "rewriteClaimPrecisely",
     schemaJson: {
       type: "object",
-      properties: { claim: { type: "string" } },
-      required: ["claim"],
+      properties: {
+        oldClaim: {
+          type: "string",
+          description: "The current claim that needs revision.",
+        },
+        selectedText: {
+          type: "string",
+          description: "The selected note text from the user in this note.",
+        },
+        additionalContext: {
+          type: "string",
+          description: "Extra context from the current note, prior claim reasoning, or user feedback that should inform the rewrite.",
+        },
+      },
+      required: ["oldClaim", "selectedText", "additionalContext"],
     },
   },
   {
@@ -236,19 +237,6 @@ export const agentToolCatalog: AgentToolCatalogEntry[] = [
       required: ["selectedText"],
     },
   },
-  {
-    key: "suggest_applications",
-    displayName: "Suggest Applications",
-    description: "Suggest practical applications or follow-up actions.",
-    scope: "NOTE",
-    requiresShell: false,
-    handlerName: "extractClaims",
-    schemaJson: {
-      type: "object",
-      properties: { selectedText: { type: "string" } },
-      required: ["selectedText"],
-    },
-  }
 ];
 
 export const pinnaTemplateCatalog: PinnaTemplateCatalogEntry[] = [
@@ -256,7 +244,7 @@ export const pinnaTemplateCatalog: PinnaTemplateCatalogEntry[] = [
     key: "claim",
     displayName: "Claim Pinna",
     defaultTitle: "What exactly is being claimed?",
-    description: "Extract the precise claim from the current note.",
+    description: "Establish and refine the note's standing claim.",
     systemPrompt: "Legacy compatibility template for Claim Pinna.",
     scope: "NOTE",
     defaultSkillKey: "claim",

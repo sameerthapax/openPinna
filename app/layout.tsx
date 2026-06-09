@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { Suspense } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { GlobalNavControls } from "@/components/navigation/GlobalNavControls";
@@ -47,7 +48,9 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
               </div>
             </header>
             <main className="mx-auto max-w-7xl px-4 py-10 md:px-6 md:py-12">{children}</main>
-            <RouteTransitionOverlay />
+            <Suspense fallback={null}>
+              <RouteTransitionOverlay />
+            </Suspense>
           </div>
         </ThemeProvider>
       </body>

@@ -1,8 +1,11 @@
 import type {
   ResponseFunctionToolCall,
   ResponseInputItem,
+  ResponseCreateParamsBase,
+  Response as OpenAIResponse,
   Tool,
 } from "openai/resources/responses/responses";
+import OpenAI from "openai";
 import { getOpenAIClient } from "@/src/agents/openai/openai-client";
 import {
   AgentDefinition,
@@ -19,6 +22,10 @@ import {
 import { executeToolCallForPinna } from "@/src/agents/openai/openai-tool-adapter";
 import { buildInlineOpenAISkill } from "@/src/agents/openai/skill-sync";
 
+export const RECENT_MESSAGE_LIMIT = 3;
+const USE_JSON_RESPONSE_FORMAT = false;
+const PINNA_AGENT_DEBUG = process.env.PINNA_AGENT_DEBUG === "1";
+
 type ResponsesFunctionTool = {
   type: "function";
   name: string;
@@ -26,6 +33,8 @@ type ResponsesFunctionTool = {
   parameters: Record<string, unknown> | null;
   strict: boolean | null;
 };
+
+type ResponsesRequestBody = ResponseCreateParamsBase;
 
 export function shouldAttachShellTool(input: {
   skillRequiresShell: boolean;
@@ -112,16 +121,36 @@ function collectFunctionCalls(response: {
   );
 }
 
+function getUpdatedCurrentClaimFromToolCalls(toolCalls: ExecutedToolCall[]) {
+  for (let i = toolCalls.length - 1; i >= 0; i -= 1) {
+    const output = toolCalls[i].output;
+    if (
+      output &&
+      typeof output === "object" &&
+      !Array.isArray(output) &&
+      typeof (output as { currentClaim?: unknown }).currentClaim === "string"
+    ) {
+      const claim = (output as { currentClaim: string }).currentClaim.trim();
+      if (claim) return claim;
+    }
+  }
+
+  return null;
+}
+
 function buildConversationInput(input: AgentRunInput) {
   const messages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [];
 
-  messages.push({
-    role: "system",
-    content:
-      'Return json only. Use exactly this json object shape: {"internal":"hidden self-guidance or self-check","reply":"final user-facing reply"}.',
-  });
+  if (USE_JSON_RESPONSE_FORMAT) {
+    messages.push({
+      role: "system",
+      content:
+        'Return json only. Use exactly this json object shape: {"internal":"hidden self-guidance or self-check","reply":"final user-facing reply"}.',
+    });
+  }
 
-  for (const message of input.recentMessages.slice(-5)) {
+  // Keep raw history compact; thread and memory summaries carry the longer context.
+  for (const message of input.recentMessages.slice(-RECENT_MESSAGE_LIMIT)) {
     if (message.role === "user" || message.role === "assistant") {
       messages.push({
         role: message.role,
@@ -148,6 +177,38 @@ function parseToolArguments(value: string) {
   } catch {
     return {};
   }
+}
+
+async function runResponsesRequest(input: {
+  client: ReturnType<typeof getOpenAIClient>;
+  requestBody: ResponsesRequestBody;
+  streamSink?: (event: { type: "assistant.delta"; delta: string; responseId?: string; iteration: number }) => void;
+  iteration: number;
+}): Promise<{ response: OpenAIResponse; streamedText: string }> {
+  if (!input.streamSink) {
+    const response = await input.client.responses.create(input.requestBody);
+    return { response: response as OpenAIResponse, streamedText: "" };
+  }
+
+  const stream = input.client.responses.stream(
+    input.requestBody as Parameters<OpenAI["responses"]["stream"]>[0],
+  );
+  let streamedText = "";
+
+  for await (const event of stream) {
+    if (event.type === "response.output_text.delta") {
+      streamedText += event.delta;
+      input.streamSink({
+        type: "assistant.delta",
+        delta: event.delta,
+        responseId: event.item_id,
+        iteration: input.iteration,
+      });
+    }
+  }
+
+  const response = await stream.finalResponse();
+  return { response: response as OpenAIResponse, streamedText };
 }
 
 export const openAIPinnaAgentRunner: AgentDefinition<
@@ -177,6 +238,8 @@ export const openAIPinnaAgentRunner: AgentDefinition<
       sessionSummary: input.context.sessionSummary,
       sourceTitle: input.context.sourceTitle,
       selectedText: input.context.selectedText,
+      currentClaim: input.context.currentClaim,
+      baseKnowledgeVersion: input.context.baseKnowledgeVersion,
       threadSummary: input.context.threadSummary,
       allowedToolsSummary: buildAllowedToolsSummary(input.allowedTools),
       recentMessages: input.recentMessages,
@@ -191,6 +254,7 @@ export const openAIPinnaAgentRunner: AgentDefinition<
       parameters: normalizeToolSchema(allowedTool.schema),
       strict: false,
     }));
+
 
     const shouldAttachShell = shouldAttachShellTool({
       skillRequiresShell: skill.requiresShell,
@@ -212,15 +276,22 @@ export const openAIPinnaAgentRunner: AgentDefinition<
       } as Tool);
     }
 
-    let response = await client.responses.create({
+    const responseOptions = USE_JSON_RESPONSE_FORMAT
+      ? {
+          text: {
+            format: {
+              type: "json_object" as const,
+            },
+          },
+        }
+      : {};
+
+    const openAiRequestStartedAt = Date.now();
+    const requestBody = {
       model: skill.defaultModel,
       instructions: prompt,
       input: buildConversationInput(input),
-      text: {
-        format: {
-          type: "json_object",
-        },
-      },
+      ...responseOptions,
       tools,
       parallel_tool_calls: true,
       store: true,
@@ -231,10 +302,33 @@ export const openAIPinnaAgentRunner: AgentDefinition<
         scope: input.context.scope,
         skill_key: skill.key,
       },
+    };
+
+    const initialRequest = await runResponsesRequest({
+      client,
+      requestBody,
+      iteration: 0,
+      streamSink: input.streamSink,
     });
+    let response = initialRequest.response;
 
     for (let iteration = 0; iteration < 8; iteration += 1) {
       const functionCalls = collectFunctionCalls(response);
+      console.log("[TOOL_CALLS_FROM_OPENAI]", {
+
+        count: functionCalls.length,
+
+        calls: functionCalls.map((call) => ({
+
+          name: call.name,
+
+          callId: call.call_id,
+
+          arguments: call.arguments,
+
+        })),
+
+      });
       if (functionCalls.length === 0) {
         break;
       }
@@ -242,6 +336,18 @@ export const openAIPinnaAgentRunner: AgentDefinition<
       const toolOutputs: ResponseInputItem.FunctionCallOutput[] = [];
 
       for (const functionCall of functionCalls) {
+        input.streamSink?.({
+          type: "tool.started",
+          toolKey: functionCall.name,
+          toolCallId: functionCall.call_id,
+          iteration,
+        });
+        console.log("[EXECUTING_TOOL_CALL]", {
+          toolKey: functionCall.name,
+          args: parseToolArguments(functionCall.arguments),
+          threadId: input.context.threadId,
+        });
+
         const execution = await executeToolCallForPinna({
           threadId: input.context.threadId,
           messageId: input.userMessageId,
@@ -256,6 +362,14 @@ export const openAIPinnaAgentRunner: AgentDefinition<
 
         executedToolCalls.push(execution);
 
+        input.streamSink?.({
+          type: "tool.completed",
+          toolKey: execution.toolKey,
+          toolCallId: functionCall.call_id,
+          iteration,
+          status: execution.status,
+        });
+
         toolOutputs.push({
           type: "function_call_output",
           call_id: functionCall.call_id,
@@ -268,27 +382,53 @@ export const openAIPinnaAgentRunner: AgentDefinition<
         });
       }
 
-      response = await client.responses.create({
+
+      const retryStartedAt = Date.now();
+      const retryRequest = {
         model: skill.defaultModel,
         previous_response_id: response.id,
         input: toolOutputs,
-        text: {
-          format: {
-            type: "json_object",
-          },
-        },
+        ...responseOptions,
         tools,
         parallel_tool_calls: true,
         store: true,
+      };
+
+      const streamedRetry = await runResponsesRequest({
+        client,
+        requestBody: retryRequest,
+        iteration: iteration + 1,
+        streamSink: input.streamSink,
       });
+      response = streamedRetry.response;
+
+      if (PINNA_AGENT_DEBUG) {
+        console.log("[PINNA_TIMING]", {
+          step: "openai_responses_retry",
+          ms: Date.now() - retryStartedAt,
+          threadId: input.context.threadId,
+          toolCallCount: toolOutputs.length,
+        });
+      }
     }
 
     const assistantMessage = getAssistantText(response);
+    const updatedCurrentClaim = getUpdatedCurrentClaimFromToolCalls(executedToolCalls);
+
+    if (PINNA_AGENT_DEBUG) {
+      console.log("[PINNA_TIMING]", {
+        step: "openai_responses_create",
+        ms: Date.now() - openAiRequestStartedAt,
+        threadId: input.context.threadId,
+        responseId: response.id,
+      });
+    }
 
     return {
       assistantMessage,
       toolCalls: executedToolCalls,
       memoryWrites: [] as MemoryWriteResult[],
+      updatedCurrentClaim,
       observerPayload: {
         lastUserMessage: input.userMessage,
         lastAssistantMessage: assistantMessage,

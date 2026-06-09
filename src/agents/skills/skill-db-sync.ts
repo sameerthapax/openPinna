@@ -6,6 +6,7 @@ type PrismaLike = PrismaClient;
 
 export async function syncSkillsFromFilesystemToDb(prisma: PrismaLike) {
   const skills = await listSkillDefinitions();
+  const catalogToolKeys = new Set(agentToolCatalog.map((tool) => tool.key));
 
   for (const tool of agentToolCatalog) {
     await prisma.agentTool.upsert({
@@ -17,6 +18,7 @@ export async function syncSkillsFromFilesystemToDb(prisma: PrismaLike) {
         requiresShell: tool.requiresShell,
         schemaJson: tool.schemaJson as Prisma.InputJsonValue,
         handlerName: tool.handlerName,
+        isEnabled: true,
       },
       create: {
         key: tool.key,
@@ -26,9 +28,21 @@ export async function syncSkillsFromFilesystemToDb(prisma: PrismaLike) {
         requiresShell: tool.requiresShell,
         schemaJson: tool.schemaJson as Prisma.InputJsonValue,
         handlerName: tool.handlerName,
+        isEnabled: true,
       },
     });
   }
+
+  await prisma.agentTool.updateMany({
+    where: {
+      key: {
+        notIn: [...catalogToolKeys],
+      },
+    },
+    data: {
+      isEnabled: false,
+    },
+  });
 
   for (const skill of skills) {
     const record = await prisma.pinnaSkill.upsert({
@@ -39,6 +53,7 @@ export async function syncSkillsFromFilesystemToDb(prisma: PrismaLike) {
         version: skill.version,
         defaultModel: skill.defaultModel,
         requiresShell: skill.requiresShell,
+        isEnabled: true,
         skillPath: skill.skillDocPath,
         runtimePath: skill.runtimePath,
         manifestJson: skill.manifest as Prisma.InputJsonValue,
@@ -50,11 +65,25 @@ export async function syncSkillsFromFilesystemToDb(prisma: PrismaLike) {
         version: skill.version,
         defaultModel: skill.defaultModel,
         requiresShell: skill.requiresShell,
+        isEnabled: true,
         skillPath: skill.skillDocPath,
         runtimePath: skill.runtimePath,
         manifestJson: skill.manifest as Prisma.InputJsonValue,
       },
     });
+
+    const allowedToolIds = (
+      await prisma.agentTool.findMany({
+        where: {
+          key: {
+            in: skill.allowedTools,
+          },
+        },
+        select: {
+          id: true,
+        },
+      })
+    ).map((tool) => tool.id);
 
     for (const toolKey of skill.allowedTools) {
       const tool = await prisma.agentTool.findUnique({
@@ -79,6 +108,13 @@ export async function syncSkillsFromFilesystemToDb(prisma: PrismaLike) {
         },
       });
     }
+
+    await prisma.pinnaSkillTool.deleteMany({
+      where: {
+        skillId: record.id,
+        toolId: allowedToolIds.length > 0 ? { notIn: allowedToolIds } : { notIn: [] },
+      },
+    });
   }
 
   for (const template of pinnaTemplateCatalog) {

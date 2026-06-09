@@ -10,6 +10,12 @@ export async function POST(request: Request, context: Ctx) {
   const parsed = sendMessageSchema.safeParse(payload);
   if (!parsed.success) return jsonError(zodError(parsed.error));
 
-  const assistantMessage = await sendMessage(threadId, parsed.data.userMessage);
-  return jsonOk({ assistantMessage }, 201);
+  const result = await sendMessage(threadId, parsed.data.userMessage);
+  return jsonOk(
+    {
+      assistantMessage: result.assistantMessage,
+      updatedCurrentClaim: result.updatedCurrentClaim ?? null,
+    },
+    201,
+  );
 }

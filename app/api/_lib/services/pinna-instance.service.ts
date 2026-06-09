@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { normalizePinnaAgentConfig } from "@/src/agents/core/pinna-agent-config";
+import { filterVisibleThreadMessages } from "@/app/api/_lib/services/thread-message.service";
 
 type DbLike = Prisma.TransactionClient | typeof db;
 
@@ -449,7 +450,13 @@ export async function listPinnasByNote(noteId: string) {
   });
 
   if (pinnas.length > 0) {
-    return pinnas;
+    return pinnas.map((pinna) => ({
+      ...pinna,
+      chatThreads: pinna.chatThreads.map((thread) => ({
+        ...thread,
+        messages: filterVisibleThreadMessages(thread.messages),
+      })),
+    }));
   }
 
   const legacyThreads = await db.chatThread.findMany({
@@ -462,7 +469,7 @@ export async function listPinnasByNote(noteId: string) {
     await ensurePinnaForThread(thread.id);
   }
 
-  return db.pinna.findMany({
+  const hydrated = await db.pinna.findMany({
     where: { noteId },
     include: {
       pinnaTemplate: {
@@ -485,6 +492,14 @@ export async function listPinnasByNote(noteId: string) {
     },
     orderBy: { createdAt: "asc" },
   });
+
+  return hydrated.map((pinna) => ({
+    ...pinna,
+    chatThreads: pinna.chatThreads.map((thread) => ({
+      ...thread,
+      messages: filterVisibleThreadMessages(thread.messages),
+    })),
+  }));
 }
 
 export async function ensurePinnaRuntimeConfig(

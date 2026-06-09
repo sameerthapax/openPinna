@@ -14,11 +14,27 @@ Rules for future AI agents working on openPinna.
 - Use Zod validation before database writes.
 - Do not create manual SQL migrations. All database changes must be defined in `prisma/schema.prisma` and applied via Prisma-generated migrations.
 - Treat `prisma/schema.prisma` as the single source of truth for database structure. If the database needs to change, change the Prisma schema first.
+- Do not create or hand-write Prisma migration files manually.
+- Ask before running any database checking, Prisma migration generation, or migration application commands in the sandbox.
+- Assume Docker is already running unless the user says otherwise; do not spend time restarting it by default.
 - Add clear file-level comments for non-obvious logic.
 - Never silently introduce new dependencies without explaining why.
 - Prefer simple, readable code over clever abstractions.
 - Keep MVP scope tight.
 - Do not add authentication, payments, real AI API calls, embeddings, voice capture, or extension code unless explicitly requested.
+
+## Agent Performance Practices
+
+- Stream or return user-visible output as early as possible.
+- Do not block chat responses on memory writes, analytics, or knowledge rebuild jobs.
+- Cache stable runtime context with a short TTL when a shared cache helper is already available.
+- Keep prompt context compact: summary plus the last few messages, not full history.
+- Pass only fields actually used by prompt builders.
+- Log timing with a debug flag, not by default.
+- Avoid JSON response mode unless the response must be machine parsed.
+- Prefer smaller, faster models for routine turns and larger models only for deep reasoning.
+- Keep DB writes and queue jobs ordered only where correctness requires it.
+- Never log full private source text, memory content, or sensitive user content in default logs.
 
 ## Extension Rules
 

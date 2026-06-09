@@ -34,6 +34,15 @@ export type SkillPromptInput = {
   sessionSummary?: string | null;
   sourceTitle?: string | null;
   selectedText?: string | null;
+  currentClaim?: string | null;
+  baseKnowledgeVersion?: {
+    version: number;
+    title?: string | null;
+    summary?: string | null;
+    keyFindings?: string | null;
+    userView?: string | null;
+    conclusion?: string | null;
+  } | null;
   threadSummary?: string | null;
   allowedToolsSummary?: string | null;
   recentMessages?: Array<{ role: string; content: string }>;
@@ -119,6 +128,15 @@ export type AgentContext = {
   sessionSummary?: string | null;
   sourceTitle?: string | null;
   selectedText?: string | null;
+  currentClaim?: string | null;
+  baseKnowledgeVersion?: {
+    version: number;
+    title?: string | null;
+    summary?: string | null;
+    keyFindings?: string | null;
+    userView?: string | null;
+    conclusion?: string | null;
+  } | null;
   threadSummary?: string | null;
   memorySummary?: string | null;
   memoryNamespace: string;
@@ -129,6 +147,7 @@ export type AgentRunInput = {
   userMessage: string;
   recentMessages: Array<{ role: string; content: string }>;
   allowedTools: ToolDescriptor[];
+  streamSink?: PinnaTurnStreamSink;
 };
 
 export type AgentRunResult = {
@@ -136,7 +155,55 @@ export type AgentRunResult = {
   toolCalls: ExecutedToolCall[];
   memoryWrites: MemoryWriteResult[];
   observerPayload: ObserverPayload;
+  updatedCurrentClaim?: string | null;
 };
+
+export type PersistedChatMessage = {
+  id: string;
+  threadId: string;
+  role: string;
+  content: string;
+  createdAt: string;
+};
+
+export type PinnaTurnStreamEvent =
+  | {
+      type: "run.started";
+      threadId: string;
+      userMessageLength: number;
+    }
+  | {
+      type: "assistant.delta";
+      delta: string;
+      responseId?: string;
+      iteration: number;
+    }
+  | {
+      type: "tool.started";
+      toolKey: string;
+      toolCallId: string;
+      iteration: number;
+    }
+  | {
+      type: "tool.completed";
+      toolKey: string;
+      toolCallId: string;
+      iteration: number;
+      status: "completed" | "failed" | "denied";
+    }
+  | {
+      type: "run.completed";
+      run: AgentRunResult;
+      userMessage: PersistedChatMessage;
+      assistantMessage: PersistedChatMessage;
+      messages: PersistedChatMessage[];
+    }
+  | {
+      type: "run.error";
+      message: string;
+    };
+
+export type PinnaTurnStreamSink = (event: PinnaTurnStreamEvent) => void;
 
 export type ObserverKnowledgeContext = {
   currentEventSeq: bigint;
